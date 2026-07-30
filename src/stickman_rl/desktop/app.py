@@ -37,6 +37,11 @@ COLORS = {
     "purple": "#a78bfa",
 }
 
+DEFAULT_ROOM_WIDTH = 12.0
+DEFAULT_ROOM_HEIGHT = 7.0
+DEFAULT_TARGET_POSITION = [9.5, 0.55]
+DEFAULT_TARGET_SIZE = [0.8, 0.9]
+
 STATUS_LABELS = {
     "starting": "正在启动",
     "running": "训练中",
@@ -66,6 +71,11 @@ def finite_float(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return parsed if math.isfinite(parsed) else None
+
+
+def positive_float(value: Any, default: float) -> float:
+    parsed = finite_float(value)
+    return parsed if parsed is not None and parsed > 0.0 else default
 
 
 def metric_records(value: Any) -> list[dict[str, Any]]:
@@ -117,6 +127,89 @@ def finite_point(value: Any, *, fill_missing: bool = False) -> list[float] | Non
     if x is None or y is None:
         return None
     return [x, y]
+
+
+def normalize_body_geometry(value: Any) -> dict[str, dict[str, Any]]:
+    normalized: dict[str, dict[str, Any]] = {}
+    for name, raw_geometry in _json_object(value).items():
+        if not isinstance(name, str) or not name:
+            continue
+        geometry = _json_object(raw_geometry)
+        kind = geometry.get("kind")
+        if kind == "circle":
+            radius = finite_float(geometry.get("radius"))
+            offset = finite_point(geometry.get("offset"))
+            if radius is None or radius <= 0.0 or offset is None:
+                continue
+            normalized[name] = {"kind": "circle", "radius": radius, "offset": offset}
+        elif kind == "segment":
+            start = finite_point(geometry.get("a"))
+            end = finite_point(geometry.get("b"))
+            radius = finite_float(geometry.get("radius"))
+            if start is None or end is None or radius is None or radius < 0.0:
+                continue
+            normalized[name] = {"kind": "segment", "a": start, "b": end, "radius": radius}
+        elif kind == "polygon":
+            raw_vertices = _json_list(geometry.get("vertices"))
+            vertices = [finite_point(vertex) for vertex in raw_vertices]
+            if len(vertices) < 3 or any(vertex is None for vertex in vertices):
+                continue
+            normalized[name] = {
+                "kind": "polygon",
+                "vertices": [vertex for vertex in vertices if vertex is not None],
+            }
+    return normalized
+
+
+def normalize_metadata_payload(value: Any) -> dict[str, Any]:
+    payload = dict(_json_object(value))
+    room = dict(_json_object(payload.get("room")))
+    room["width"] = positive_float(room.get("width"), DEFAULT_ROOM_WIDTH)
+    room["height"] = positive_float(room.get("height"), DEFAULT_ROOM_HEIGHT)
+    payload["room"] = room
+    target = dict(_json_object(payload.get("target")))
+    target["position"] = finite_point(target.get("position")) or list(DEFAULT_TARGET_POSITION)
+    target_size = finite_point(target.get("size"))
+    if target_size is None or any(value <= 0.0 for value in target_size):
+        target_size = list(DEFAULT_TARGET_SIZE)
+    target["size"] = target_size
+    payload["target"] = target
+    obstacles: list[dict[str, Any]] = []
+    for value in _json_list(payload.get("obstacles")):
+        obstacle = dict(_json_object(value))
+        if not obstacle:
+            continue
+        obstacle_type = obstacle.get("type", "box")
+        obstacle["type"] = (
+            obstacle_type.strip().lower()
+            if isinstance(obstacle_type, str) and obstacle_type.strip()
+            else "box"
+        )
+        if obstacle["type"] in {"box", "platform", "wall"}:
+            position = finite_point(obstacle.get("position"))
+            size = finite_point(obstacle.get("size"))
+            if position is None or size is None or any(dimension <= 0.0 for dimension in size):
+                continue
+            obstacle["position"] = position
+            obstacle["size"] = size
+        obstacles.append(obstacle)
+    payload["obstacles"] = obstacles
+    waypoints: list[list[float]] = []
+    for value in _json_list(payload.get("waypoints")):
+        waypoint = finite_point(value)
+        if waypoint is not None:
+            waypoints.append(waypoint)
+    payload["waypoints"] = waypoints
+    for field, prefix in (("action_names", "action"), ("body_names", "body")):
+        names: list[str] = []
+        for index, name in enumerate(_json_list(payload.get(field))):
+            if isinstance(name, str) and name.strip():
+                names.append(name.strip())
+            else:
+                names.append(f"{prefix}_{index}")
+        payload[field] = names
+    payload["body_geometry"] = normalize_body_geometry(payload.get("body_geometry"))
+    return payload
 
 
 def normalize_frame_payload(value: Any) -> dict[str, Any]:
@@ -251,7 +344,7 @@ class PhysicsCanvas(tk.Canvas):
         self.bind("<Configure>", lambda _event: self.redraw())
 
     def set_metadata(self, metadata: dict[str, Any]) -> None:
-        self.metadata = metadata
+        self.metadata = normalize_metadata_payload(metadata)
         self.redraw()
 
     def set_frame(self, frame: dict[str, Any]) -> None:
@@ -649,8 +742,9 @@ class DesktopLabApp:
         event_type = event.get("type")
         payload = event.get("payload", {})
         if event_type == "metadata":
-            self.metadata = payload
-            self.physics.set_metadata(payload)
+            normalized = normalize_metadata_payload(payload)
+            self.metadata = normalized
+            self.physics.set_metadata(normalized)
         elif event_type == "frame":
             normalized = normalize_frame_payload(payload)
             self.frame = normalized
@@ -681,7 +775,7 @@ class DesktopLabApp:
                 self.metrics = snapshot["metrics"]
             snapshot_frame = snapshot.get("frame")
             if self.metadata is None and snapshot_frame and snapshot_frame.get("metadata"):
-                self.metadata = snapshot_frame["metadata"]
+                self.metadata = normalize_metadata_payload(snapshot_frame["metadata"])
                 self.physics.set_metadata(self.metadata)
             if self.frame is None and snapshot_frame:
                 compact = dict(snapshot_frame)

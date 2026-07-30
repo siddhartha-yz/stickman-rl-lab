@@ -1244,6 +1244,206 @@ Full Pytest: 64 passed
 
 Checkpoint commit: `0006c662a393010bcf18cbaa7b9c4ab5a52b0518`.
 
+### Goal: normalize metadata name arrays before desktop use
+
+Acceptance criterion: non-string or blank action/body names must not raise from the action panel or physics renderer. Name-array lengths and indices must remain aligned with action/body state arrays, and invalid body geometry containers must downgrade safely.
+
+Observed baseline:
+
+- An object-valued action name made `_refresh_ui()` raise `TypeError: unhashable type: 'slice'` during name truncation.
+- An object-valued body name made `PhysicsCanvas.redraw()` raise `TypeError: unhashable type: 'dict'` during `body_geometry.get(name)`.
+- One damaged metadata name could therefore stop either the status UI or the physical visualization.
+
+Implemented:
+
+- Add one `normalize_metadata_payload()` boundary.
+- Trim valid action/body names and replace invalid or blank entries with stable indexed placeholders such as `action_0` and `body_0`.
+- Preserve input list lengths and indices so names remain aligned with live arrays.
+- Normalize invalid `body_geometry` values to an empty object.
+- Apply the normalizer to live metadata events, disk snapshot recovery, and `PhysicsCanvas.set_metadata()`.
+
+Verification:
+
+```text
+Desktop app tests: 12 passed
+Object action name baseline: TypeError
+Object body name baseline: TypeError
+Normalized action name: action_0
+Normalized body name: body_0
+Full action refresh after fix: completed
+Full physics redraw after fix: completed
+Full Ruff: passed
+Full Pytest: 65 passed
+```
+
+Checkpoint commit: `aac3e7ecfbdf3f328067cffa1994d5877ff1df4a`.
+
+
+### Goal: normalize room dimensions before physics-canvas transforms
+
+Acceptance criterion: malformed, non-finite, zero, or non-object room metadata must not raise from `PhysicsCanvas._point_transform()`. Valid positive dimensions must be preserved, while invalid values fall back to the verified base environment size.
+
+Observed baseline:
+
+- `width: 0` raised `ZeroDivisionError`.
+- `width: "bad"` raised `TypeError` during scale calculation.
+- List-valued or null room metadata raised `TypeError` before the canvas could render.
+
+Implemented:
+
+- Add verified desktop defaults matching `configs/base.yaml`: width 12.0 and height 7.0.
+- Add one positive finite float boundary for room dimensions.
+- Normalize room width and height inside the existing metadata boundary before any canvas use.
+- Preserve valid numeric strings and positive numeric values.
+
+Verification:
+
+```text
+Desktop app tests: 13 passed
+Zero/string/list/null room baseline: ZeroDivisionError or TypeError
+All four invalid-room transforms after fix: completed
+Normalized default room: 12.0 x 7.0
+Full Ruff: passed
+Full Pytest: 66 passed
+```
+
+Checkpoint commit: `6e08ba737d58477aa154d4857c96c1b63b739e56`.
+
+
+### Goal: normalize target metadata before physics rendering
+
+Acceptance criterion: missing, non-object, short, non-finite, or non-positive target position/size metadata must not raise from `PhysicsCanvas.redraw()`. Valid target fields must be preserved independently, while only invalid fields fall back to the verified base configuration.
+
+Observed baseline:
+
+- Missing or list-valued target metadata raised `TypeError`.
+- A one-coordinate position raised `IndexError`.
+- Non-numeric or null target sizes raised `TypeError`.
+
+Implemented:
+
+- Add verified target defaults matching `configs/base.yaml`: position `[9.5, 0.55]`, size `[0.8, 0.9]`.
+- Require target positions to contain two finite coordinates.
+- Require target width and height to be finite and strictly positive.
+- Normalize position and size independently so a valid field is not discarded when the other field is malformed.
+- Keep dynamic per-frame target positions unchanged; they continue to override normalized static metadata when valid.
+
+Verification:
+
+```text
+Desktop app tests: 18 passed
+Five malformed target cases before fix: TypeError or IndexError
+Five malformed target redraws after fix: completed
+Missing/list target fallback: full base target
+Short position fallback: position only
+Bad/null size fallback: size only
+Full Ruff: passed
+Full Pytest: 71 passed
+```
+
+Checkpoint commit: `e4a86b85cc265232cf0bd1da00acfedee774b02c`.
+
+
+### Goal: normalize obstacle metadata before physics rendering
+
+Acceptance criterion: non-list obstacle containers, non-object entries, short positions, non-finite coordinates, and non-positive sizes must not raise from `PhysicsCanvas.redraw()`. Valid obstacles must retain order and compatible custom fields.
+
+Observed baseline:
+
+- String-valued obstacle containers and null entries raised `AttributeError`.
+- A one-coordinate box position raised `ValueError` during unpacking.
+- A non-numeric size raised `TypeError` during rectangle arithmetic.
+
+Implemented:
+
+- Accept only list-valued obstacle containers and object-valued entries.
+- Normalize obstacle type names to trimmed lowercase strings, falling back to `box` for invalid type values.
+- Require box/platform/wall entries to have two finite position coordinates and strictly positive finite dimensions.
+- Skip malformed drawable obstacles instead of terminating the renderer.
+- Retain unsupported/custom obstacle objects for existing renderer skip behavior and preserve valid entry order.
+
+Verification:
+
+```text
+Desktop app tests: 19 passed
+Four malformed obstacle cases before fix: AttributeError, ValueError, or TypeError
+Four malformed obstacle redraws after fix: completed
+Malformed obstacle result: empty list
+Valid wall geometry normalized: true
+Custom slope entry retained: true
+Full Ruff: passed
+Full Pytest: 72 passed
+```
+
+Checkpoint commit: `315386009bbdc253592b4ec868ee6281dfb2b093`.
+
+
+### Goal: normalize waypoint metadata before physics rendering
+
+Acceptance criterion: non-list waypoint containers, null entries, short arrays, and non-finite coordinates must not raise from `PhysicsCanvas.redraw()`. Valid two-coordinate waypoints must retain order.
+
+Observed baseline:
+
+- String-valued waypoint containers and non-numeric coordinates raised `TypeError` inside the canvas transform.
+- Null entries raised `TypeError`.
+- A one-coordinate waypoint raised `IndexError`.
+
+Implemented:
+
+- Accept only list-valued waypoint containers.
+- Convert each waypoint through the existing strict finite two-coordinate boundary.
+- Skip malformed entries instead of terminating the renderer.
+- Preserve valid waypoint order and numeric-string conversion.
+
+Verification:
+
+```text
+Desktop app tests: 20 passed
+Four malformed waypoint cases before fix: TypeError or IndexError
+Four malformed waypoint redraws after fix: completed
+Malformed waypoint result: empty list
+Valid numeric-string waypoint preserved: [3.0, 4.0]
+Full Ruff: passed
+Full Pytest: 73 passed
+```
+
+Checkpoint commit: `bf0f01bebf304f231b057bedefb509a9402ad03c`.
+
+
+### Goal: normalize body geometry before physics rendering
+
+Acceptance criterion: malformed per-body circle, segment, polygon, or non-object geometry must not terminate `PhysicsCanvas.redraw()`. Invalid geometry for one body should be skipped while valid bodies remain renderable.
+
+Observed baseline:
+
+- Non-object geometry raised `TypeError`.
+- A circle without radius raised `KeyError`.
+- A segment with a short endpoint raised `ValueError`.
+- A polygon with a non-numeric vertex raised `TypeError`.
+
+Implemented:
+
+- Add one `normalize_body_geometry()` boundary for the renderer's supported circle, segment, and polygon kinds.
+- Require circles to have a positive finite radius and a finite two-coordinate offset.
+- Require segments to have two finite endpoints and a non-negative finite radius.
+- Require polygons to have at least three finite two-coordinate vertices.
+- Drop unsupported or malformed single-body geometry without affecting other body state arrays.
+- Convert valid numeric strings into finite floats.
+
+Verification:
+
+```text
+Desktop app tests: 21 passed
+Four malformed geometry cases before fix: TypeError, KeyError, or ValueError
+Four malformed geometry redraws after fix: completed
+Malformed geometry result: body entry omitted
+Valid circle/segment/polygon normalization: passed
+Full Ruff: passed
+Full Pytest: 74 passed
+```
+
+Checkpoint commit: `b591885a812f53c8757299b9ae7ed36759974138`.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
