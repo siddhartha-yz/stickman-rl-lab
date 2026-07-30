@@ -17,6 +17,7 @@ from stickman_rl.desktop.app import (
     metric_records,
     nonnegative_int,
     normalize_frame_payload,
+    normalize_metadata_payload,
     rotate_point,
     run_summaries,
 )
@@ -26,6 +27,28 @@ def test_rotate_point_matches_quarter_turn() -> None:
     x, y = rotate_point([1.0, 0.0], math.pi / 2, [2.0, 3.0])
     assert math.isclose(x, 2.0, abs_tol=1e-8)
     assert math.isclose(y, 4.0, abs_tol=1e-8)
+
+
+def test_metadata_payload_normalizes_name_arrays() -> None:
+    normalized = normalize_metadata_payload(
+        {
+            "action_names": [{"bad": 1}, " left_hip ", ""],
+            "body_names": [{"bad": 1}, " torso "],
+            "body_geometry": [],
+        }
+    )
+    assert normalized["action_names"] == ["action_0", "left_hip", "action_2"]
+    assert normalized["body_names"] == ["body_0", "torso"]
+    assert normalized["body_geometry"] == {}
+
+    canvas = PhysicsCanvas.__new__(PhysicsCanvas)
+    canvas.redraw = lambda: None
+    PhysicsCanvas.set_metadata(
+        canvas,
+        {"body_names": [{"bad": 1}], "action_names": [{"bad": 1}]},
+    )
+    assert canvas.metadata["body_names"] == ["body_0"]
+    assert canvas.metadata["action_names"] == ["action_0"]
 
 
 def test_finite_point_distinguishes_strict_and_fill_missing_modes() -> None:

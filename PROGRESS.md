@@ -1244,6 +1244,40 @@ Full Pytest: 64 passed
 
 Checkpoint commit: `0006c662a393010bcf18cbaa7b9c4ab5a52b0518`.
 
+### Goal: normalize metadata name arrays before desktop use
+
+Acceptance criterion: non-string or blank action/body names must not raise from the action panel or physics renderer. Name-array lengths and indices must remain aligned with action/body state arrays, and invalid body geometry containers must downgrade safely.
+
+Observed baseline:
+
+- An object-valued action name made `_refresh_ui()` raise `TypeError: unhashable type: 'slice'` during name truncation.
+- An object-valued body name made `PhysicsCanvas.redraw()` raise `TypeError: unhashable type: 'dict'` during `body_geometry.get(name)`.
+- One damaged metadata name could therefore stop either the status UI or the physical visualization.
+
+Implemented:
+
+- Add one `normalize_metadata_payload()` boundary.
+- Trim valid action/body names and replace invalid or blank entries with stable indexed placeholders such as `action_0` and `body_0`.
+- Preserve input list lengths and indices so names remain aligned with live arrays.
+- Normalize invalid `body_geometry` values to an empty object.
+- Apply the normalizer to live metadata events, disk snapshot recovery, and `PhysicsCanvas.set_metadata()`.
+
+Verification:
+
+```text
+Desktop app tests: 12 passed
+Object action name baseline: TypeError
+Object body name baseline: TypeError
+Normalized action name: action_0
+Normalized body name: body_0
+Full action refresh after fix: completed
+Full physics redraw after fix: completed
+Full Ruff: passed
+Full Pytest: 65 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
