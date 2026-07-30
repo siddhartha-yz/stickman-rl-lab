@@ -1609,7 +1609,7 @@ Full Ruff: passed
 Full Pytest: 82 passed
 ```
 
-Checkpoint commit: pending `goal_checkpoint.ps1` result.
+Checkpoint commit: `25e2f0ade419407f6173e8b1bb31ee84944848b7`.
 
 ## Generated artifacts
 
