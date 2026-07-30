@@ -68,7 +68,7 @@ def rotate_point(point: list[float], angle: float, position: list[float]) -> tup
 def finite_float(value: Any) -> float | None:
     try:
         parsed = float(value)
-    except (TypeError, ValueError):
+    except (OverflowError, TypeError, ValueError):
         return None
     return parsed if math.isfinite(parsed) else None
 
@@ -93,21 +93,13 @@ def nonnegative_int(value: Any, default: int = 0) -> int:
 
 
 def format_number(value: Any, digits: int = 2) -> str:
-    if value is None:
-        return "—"
-    try:
-        return f"{float(value):.{digits}f}"
-    except (TypeError, ValueError):
-        return "—"
+    parsed = finite_float(value)
+    return f"{parsed:.{digits}f}" if parsed is not None else "—"
 
 
 def format_percent(value: Any) -> str:
-    if value is None:
-        return "—"
-    try:
-        return f"{float(value) * 100:.1f}%"
-    except (TypeError, ValueError):
-        return "—"
+    parsed = finite_float(value)
+    return f"{parsed * 100:.1f}%" if parsed is not None else "—"
 
 
 def _json_object(value: Any) -> dict[str, Any]:
@@ -244,8 +236,8 @@ def normalize_frame_payload(value: Any) -> dict[str, Any]:
 
 def _history_timestamp(value: Any, fallback: float) -> float:
     if isinstance(value, int | float) and not isinstance(value, bool):
-        numeric = float(value)
-        return numeric if math.isfinite(numeric) else fallback
+        numeric = finite_float(value)
+        return numeric if numeric is not None else fallback
     if isinstance(value, str):
         try:
             return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
