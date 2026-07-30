@@ -358,6 +358,7 @@ def test_metric_input_helpers_filter_invalid_records_and_values() -> None:
     assert finite_float("not-a-number") is None
     assert finite_float({"bad": 1}) is None
     assert finite_float(float("inf")) is None
+    assert finite_float(10**10000) is None
 
 
 def test_nonnegative_int_handles_persisted_status_values() -> None:
@@ -376,6 +377,15 @@ def test_desktop_formatters_handle_missing_values() -> None:
     assert format_percent(0.625) == "62.5%"
     assert format_percent("not-a-number") == "—"
     assert format_percent({"bad": 1}) == "—"
+    assert format_number(10**10000) == "—"
+    assert format_percent(10**10000) == "—"
+    assert format_number(float("inf")) == "—"
+
+
+def test_frame_payload_downgrades_oversized_action_values() -> None:
+    normalized = normalize_frame_payload({"training": {"action": [10**10000]}})
+
+    assert normalized["training"]["action"] == [0.0]
 
 
 def test_refresh_ui_tolerates_non_string_state() -> None:
@@ -487,6 +497,23 @@ def test_run_summaries_normalizes_mixed_timestamp_types(tmp_path: Path) -> None:
         "desktop-text",
         "desktop-invalid",
     }
+
+
+def test_run_summaries_tolerates_oversized_numeric_timestamp(tmp_path: Path) -> None:
+    run_dir = tmp_path / "desktop-huge-time"
+    run_dir.mkdir()
+    huge = 10**4000
+    (run_dir / "request.json").write_text("{}", encoding="utf-8")
+    (run_dir / "status.json").write_text(
+        '{"state": "completed", "updated_at": ' + str(huge) + "}",
+        encoding="utf-8",
+    )
+
+    items = run_summaries(tmp_path)
+
+    assert len(items) == 1
+    assert items[0]["run_id"] == "desktop-huge-time"
+    assert items[0]["updated_at"] == huge
 
 
 def test_run_summaries_rejects_non_object_json_payloads(tmp_path: Path) -> None:
