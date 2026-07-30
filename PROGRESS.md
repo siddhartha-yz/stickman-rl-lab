@@ -502,6 +502,36 @@ Full Pytest: 41 passed
 
 Checkpoint commit: `0b88b5190aae0f1ae441f3d746d87843821f57a5`.
 
+### Goal: close cleanly while a terminal-status process is still exiting
+
+Acceptance criterion: if a worker publishes `completed`, `stopped`, or `failed` before the Python process fully exits, closing the desktop app must not fail because a stop command is rejected; cleanup must continue through the existing bounded wait, terminate, and kill sequence.
+
+Observed baseline:
+
+- A fake worker published `state=completed` and then remained alive for two seconds.
+- `stop_and_wait()` saw an active process, called `control("stop")`, and raised `RuntimeError: Run is already completed`, which could escape the Tk close callback.
+
+Implemented:
+
+- Treat a rejected stop command during process exit as a cleanup race rather than a fatal control error.
+- Persist the skipped-stop reason in the run's `worker.log`.
+- Continue waiting for natural exit and retain the existing terminate/kill fallback if the timeout expires.
+- Add a regression test with terminal status visible while the child process is still alive.
+
+Verification:
+
+```text
+Desktop controller tests: 8 passed
+Terminal-status reproduction: process alive before close
+stop_and_wait exit code: 0
+Process alive after close: false
+Skipped-stop reason persisted: true
+Full Ruff: passed
+Full Pytest: 42 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
