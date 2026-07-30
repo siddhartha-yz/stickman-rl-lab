@@ -12,7 +12,15 @@ from stickman_rl.desktop.controller import (
     DesktopEventBuffer,
     DesktopTrainingController,
     TrainingRequest,
+    state_name,
 )
+
+
+def test_state_name_rejects_non_string_and_blank_values() -> None:
+    assert state_name(" running ") == "running"
+    assert state_name({"bad": 1}) == "inactive"
+    assert state_name([], "idle") == "idle"
+    assert state_name("   ", "idle") == "idle"
 
 
 def test_event_buffer_downgrades_malformed_structured_events() -> None:
@@ -139,6 +147,13 @@ def test_controller_normalizes_non_object_persisted_json(tmp_path: Path) -> None
     assert snapshot["metrics"] == {"episodes": [], "updates": []}
     assert snapshot["frame"] is None
     assert snapshot["last_save"] is None
+    with pytest.raises(RuntimeError, match="already inactive"):
+        controller.control("pause")
+
+    (run_dir / "status.json").write_text(
+        json.dumps({"state": {"bad": 1}}),
+        encoding="utf-8",
+    )
     with pytest.raises(RuntimeError, match="already inactive"):
         controller.control("pause")
 

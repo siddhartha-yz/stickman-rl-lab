@@ -1211,6 +1211,39 @@ Full Pytest: 62 passed
 
 Checkpoint commit: `46df2fac7045e1fadab4cbd6ee0465d5fce57167`.
 
+### Goal: normalize run state names across controller and desktop UI
+
+Acceptance criterion: non-string or blank `state` values must not raise during controller control/finalization/wait checks, desktop status rendering, history labels, or smoke completion checks. Invalid values should use an explicit context-appropriate fallback.
+
+Observed baseline:
+
+- Object-valued state made `DesktopTrainingController.control()` raise `TypeError: unhashable type: 'dict'` during active-state membership testing.
+- The same value made `_refresh_ui()` raise during `STATUS_LABELS.get()`.
+- One damaged state field could therefore break both controls and the 16 ms Tk refresh loop.
+
+Implemented:
+
+- Add one shared `state_name()` boundary that accepts trimmed non-empty strings only.
+- Use `inactive` as the controller fallback and `idle` or `?` for desktop presentation contexts.
+- Apply the boundary to process finalization, controls, state waiting, live refresh, history labels, and smoke terminal detection.
+- Keep unknown but valid string states visible rather than silently remapping them.
+
+Verification:
+
+```text
+Controller + desktop app tests: 28 passed
+Object-valued state baseline: controller TypeError
+Object-valued state baseline: UI TypeError
+Controller after fix: RuntimeError, already inactive
+UI after fix: waiting/idle state
+Start button after fix: normal
+Full refresh after fix: completed
+Full Ruff: passed
+Full Pytest: 64 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
