@@ -1018,6 +1018,38 @@ Full Pytest: 58 passed
 
 Checkpoint commit: `0b83af4970b9857d7ad7f646897b6ebb155464a1`.
 
+### Goal: finish close cleanup when control writes fail
+
+Acceptance criterion: closing the desktop app must still execute the existing bounded wait, terminate, and kill sequence if writing the stop command raises an `OSError`. The control failure should be diagnostic, not an escape path that leaves the trainer alive.
+
+Observed baseline:
+
+- A real long-lived fake worker was started through `DesktopTrainingController`.
+- Injecting a persistent `PermissionError` for `control.json` made `stop_and_wait()` raise immediately.
+- The child process remained active because cleanup never reached its timeout and termination fallback.
+
+Implemented:
+
+- Catch both `RuntimeError` state races and `OSError` control-write failures around the stop request.
+- Record a general cleanup diagnostic rather than assuming the process is already exiting.
+- Continue through the unchanged bounded wait, terminate, and kill sequence.
+- Add a real child-process regression test with a persistently locked control write.
+
+Verification:
+
+```text
+Desktop controller tests: 15 passed
+Locked control baseline: PermissionError escaped
+Process active after baseline error: true
+stop_and_wait after fix: exit code 1
+Process active after cleanup: false
+Control failure diagnostic persisted: true
+Full Ruff: passed
+Full Pytest: 59 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`

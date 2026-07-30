@@ -497,10 +497,10 @@ class DesktopTrainingController:
             return self.process.returncode if self.process is not None else 0
         try:
             self.control("stop")
-        except RuntimeError as exc:
+        except (OSError, RuntimeError) as exc:
             self._append_worker_log(
                 "controller",
-                f"stop command skipped while process exits: {exc}",
+                f"stop command unavailable during cleanup: {exc}",
                 run_dir=self.run_dir,
             )
         try:
