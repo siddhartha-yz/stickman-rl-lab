@@ -1,0 +1,9 @@
+stage: 4
+target:
+  randomize: true
+reward_overrides:
+  height: 0.45
+  upright: 0.35
+  feet_contact: 0.04
+  hand_contact: -0.03
+  action_smoothness: -0.01

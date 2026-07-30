@@ -1,0 +1,13 @@
+{
+  "episodes": 40,
+  "success_rate": 0.0,
+  "mean_reward": 38.34970285143754,
+  "std_reward": 0.42595598796541817,
+  "mean_length": 900.0,
+  "mean_final_distance": 1.7420991748571395,
+  "mean_energy": 0.014128688424437619,
+  "mean_torso_height": 1.4082081162834617,
+  "route_completion_rate": 1.0,
+  "mean_waypoints_completed": 2.0,
+  "mean_max_torso_x": 8.16598638905597
+}

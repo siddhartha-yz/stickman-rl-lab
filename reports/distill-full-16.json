@@ -1,0 +1,21 @@
+{
+  "source_model": "checkpoints\\agent-full-lidar-waypoints-seed17-65k\\best_snapshot_114688.zip",
+  "output_model": "checkpoints\\distill-full-16\\model.zip",
+  "env_config": "configs\\stage3_lidar_waypoints_goalboost.yaml",
+  "seed": 1702,
+  "epochs": 20,
+  "batch_size": 512,
+  "learning_rate": 5e-05,
+  "anchor_coef": 1.0,
+  "final_phase_weight": 4.0,
+  "attempted_episodes": 48.0,
+  "successful_episodes": 12.0,
+  "collection_success_rate": 0.25,
+  "successful_steps": 4416.0,
+  "samples": 4416.0,
+  "final_phase_samples": 656.0,
+  "final_phase_fraction": 0.14855072463768115,
+  "final_loss": 0.028769377205106948,
+  "final_target_loss": 0.028723382494515844,
+  "final_anchor_loss": 4.599451535290832e-05
+}

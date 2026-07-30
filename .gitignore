@@ -1,0 +1,84 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyre/
+.pytype/
+.coverage
+.coverage.*
+htmlcov/
+
+# Python environments and packaging
+.venv/
+venv/
+env/
+ENV/
+*.egg-info/
+.eggs/
+build/
+dist/
+*.whl
+pip-wheel-metadata/
+
+# Frontend dependencies and generated build
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.vite-temp/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Reinforcement-learning generated artifacts
+checkpoints/**
+!checkpoints/.gitkeep
+logs/**
+!logs/.gitkeep
+trajectories/**
+!trajectories/.gitkeep
+videos/**
+!videos/.gitkeep
+lab/runs/**
+!lab/runs/.gitkeep
+
+# TensorBoard, runtime, temporary, and generated binary data
+events.out.tfevents.*
+*.npz
+*.npy
+*.pt
+*.pth
+*.onnx
+*.zip
+*.gif
+*.mp4
+*.avi
+*.tmp
+*.temp
+*.log
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials*.json
+service-account*.json
+
+# Editors and operating systems
+.idea/
+.vscode/
+*.code-workspace
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local agent/tool state
+.local-shell-mcp/
+.codex/

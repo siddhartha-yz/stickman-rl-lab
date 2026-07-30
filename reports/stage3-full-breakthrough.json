@@ -1,0 +1,61 @@
+{
+  "generated_at": "2026-07-30T04:45:00+08:00",
+  "environment_config": "configs/stage3_lidar_waypoints_goalboost.yaml",
+  "recommended_checkpoint": "checkpoints/stage3-full-recommended/model.zip",
+  "recommended_checkpoint_sha256": "6db7068817e096452f6c63b496abedc8801591f48ce71be628c2c475de11ecc4",
+  "provenance": {
+    "route_source": "checkpoints/agent-full-lidar-waypoints-seed17-65k/best_snapshot_114688.zip",
+    "general_distilled_actor": "checkpoints/actor-sweep/alpha995.zip",
+    "far_success_dataset": "trajectories/distill-far-balanced-v1.npz",
+    "far_success_dataset_sha256": "875e2ad171f5c77e1b3120ffb5bc9c908df10a41b0bd429e1574fb1f9814dfa2",
+    "far_distilled_actor": "checkpoints/distill-far-balanced-v1/model.zip",
+    "far_distilled_actor_sha256": "614737654c11814e9f1e98d1d448b48231de217a0ab288335de02f88466d2064",
+    "actor_interpolation_alpha": 0.4005
+  },
+  "independent_deterministic_evaluations": [
+    {
+      "seed_start": 1000,
+      "episodes": 40,
+      "successes": 30,
+      "success_rate": 0.75,
+      "mean_reward": 165.41914195959492,
+      "mean_length": 690.425,
+      "mean_final_distance": 0.49130929373204707,
+      "route_completion_rate": 1.0,
+      "mean_waypoints_completed": 2.0
+    },
+    {
+      "seed_start": 5000,
+      "episodes": 40,
+      "successes": 24,
+      "success_rate": 0.6,
+      "mean_reward": 150.72225455428014,
+      "mean_length": 750.825,
+      "mean_final_distance": 0.5528322853147983,
+      "route_completion_rate": 1.0,
+      "mean_waypoints_completed": 2.0
+    }
+  ],
+  "combined": {
+    "episodes": 80,
+    "successes": 54,
+    "success_rate": 0.675,
+    "route_completion_rate": 1.0
+  },
+  "comparison": {
+    "pre_distillation_route_source_success_rate": 0.0,
+    "two_trajectory_smoke_success_rate_seed1000": 0.0,
+    "overtrained_12_trajectory_distill_success_rate_seed1000": 0.0,
+    "alpha995_success_rate_seed1000": 0.25,
+    "alpha995_success_rate_seed5000": 0.075,
+    "alpha4000_success_rate_seed1000": 0.625,
+    "alpha4000_success_rate_seed5000": 0.425,
+    "alpha4005_success_rate_seed1000": 0.75,
+    "alpha4005_success_rate_seed5000": 0.6
+  },
+  "limitations": [
+    "The result is for the configured full box-plus-platform curriculum, not upright walking.",
+    "The actor interpolation basin is extremely sensitive; adjacent coefficients can collapse to one waypoint.",
+    "The model is not yet 100 percent successful across the full randomized target range."
+  ]
+}

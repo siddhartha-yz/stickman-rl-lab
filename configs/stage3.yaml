@@ -1,0 +1,12 @@
+stage: 3
+target:
+  randomize: true
+  min_x: 8.6
+  max_x: 10.5
+obstacles:
+  - type: box
+    position: [5.4, 0.35]
+    size: [0.7, 0.7]
+  - type: platform
+    position: [7.1, 0.55]
+    size: [1.4, 0.18]

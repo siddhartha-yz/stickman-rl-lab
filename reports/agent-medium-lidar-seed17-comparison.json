@@ -1,0 +1,29 @@
+{
+  "increment": "optional obstacle-ray observation",
+  "seed": 17,
+  "timesteps_per_run": 65536,
+  "environment": "stage3 medium single box",
+  "baseline": {
+    "config": "configs/stage3_medium.yaml",
+    "checkpoint": "checkpoints/agent-medium-baseline-seed17-65k/best/best_model.zip",
+    "observation_size": 49,
+    "independent_episodes": 30,
+    "success_rate": 0.0,
+    "mean_reward": 9.34338830218415,
+    "mean_final_distance": 3.655131220817566,
+    "mean_energy": 0.019606715766730273,
+    "mean_torso_height": 0.9369858901530047
+  },
+  "obstacle_rays": {
+    "config": "configs/stage3_medium_lidar.yaml",
+    "checkpoint": "checkpoints/agent-medium-lidar-seed17-65k/best/best_model.zip",
+    "observation_size": 58,
+    "independent_episodes": 30,
+    "success_rate": 0.0,
+    "mean_reward": 6.280775480649244,
+    "mean_final_distance": 4.312736129760742,
+    "mean_energy": 0.008852555265124129,
+    "mean_torso_height": 1.1613458629371045
+  },
+  "conclusion": "The sensor is geometrically valid and backward compatible, but this single-seed 65k comparison did not improve deterministic obstacle traversal. The next hypothesis is that final-target progress creates a local optimum, so route-aware waypoint shaping should be tested while retaining the 58-dimensional sensor schema."
+}

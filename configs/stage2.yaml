@@ -1,0 +1,7 @@
+stage: 2
+target:
+  randomize: true
+  min_x: 5.0
+  max_x: 10.5
+episode:
+  max_steps: 900

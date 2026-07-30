@@ -1,0 +1,61 @@
+seed: 7
+stage: 1
+physics:
+  width: 12.0
+  height: 7.0
+  gravity: [0.0, -9.81]
+  dt: 0.0166666667
+  substeps: 4
+  control_repeat: 4
+  damping: 0.995
+  floor_friction: 1.1
+  wall_friction: 0.8
+  solver_iterations: 30
+stickman:
+  spawn: [2.0, 2.25]
+  torso_size: [0.42, 1.25]
+  head_radius: 0.27
+  upper_arm_length: 0.66
+  forearm_length: 0.62
+  thigh_length: 0.78
+  shin_length: 0.76
+  limb_radius: 0.09
+  density: 5.0
+  max_joint_speed: 6.0
+  max_motor_force: 850.0
+  self_collision: false
+  joint_limits_deg:
+    left_shoulder: [-150, 120]
+    right_shoulder: [-120, 150]
+    left_elbow: [-5, 155]
+    right_elbow: [-155, 5]
+    left_hip: [-105, 75]
+    right_hip: [-75, 105]
+    left_knee: [-5, 150]
+    right_knee: [-150, 5]
+target:
+  position: [9.5, 0.55]
+  size: [0.8, 0.9]
+  randomize: false
+  min_x: 5.0
+  max_x: 10.5
+  hold_steps: 10
+  clearance: 0.25
+  max_sample_attempts: 128
+episode:
+  max_steps: 900
+  out_of_bounds_margin: 1.0
+  invalid_state_penalty: -25.0
+observation:
+  obstacle_rays:
+    enabled: false
+    max_distance: 6.0
+    angles_deg: [-75, -60, -45, -35, -25, -15, 0, 15, 30]
+navigation:
+  waypoints: []
+render:
+  width: 1200
+  height: 700
+  fps: 60
+  show_debug: true
+obstacles: []

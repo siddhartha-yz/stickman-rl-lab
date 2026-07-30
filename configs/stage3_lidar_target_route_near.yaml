@@ -1,0 +1,28 @@
+stage: 3
+target:
+  randomize: true
+  min_x: 8.6
+  max_x: 8.9
+obstacles:
+  - type: box
+    position: [5.4, 0.35]
+    size: [0.7, 0.7]
+  - type: platform
+    position: [7.1, 0.55]
+    size: [1.4, 0.18]
+observation:
+  obstacle_rays:
+    enabled: true
+    max_distance: 6.0
+    angles_deg: [-75, -60, -45, -35, -25, -15, 0, 15, 30]
+navigation:
+  waypoints:
+    - position: [6.0, 1.25]
+      radius: 0.55
+      advance_x: 5.85
+    - position: [8.05, 1.2]
+      radius: 0.6
+      advance_x: 7.85
+    - target_offset: [-0.35, 0.45]
+      radius: 0.35
+      advance_target_x_offset: -0.2

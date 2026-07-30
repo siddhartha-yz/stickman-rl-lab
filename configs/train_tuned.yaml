@@ -1,0 +1,20 @@
+algorithm: PPO
+total_timesteps: 100000
+n_envs: 1
+learning_rate: 0.00025
+n_steps: 2048
+batch_size: 256
+n_epochs: 10
+gamma: 0.995
+gae_lambda: 0.95
+clip_range: 0.2
+ent_coef: 0.0
+vf_coef: 0.5
+max_grad_norm: 0.5
+policy_layers: [256, 256]
+log_std_init: -0.7
+checkpoint_freq: 16384
+eval_freq: 8192
+eval_episodes: 10
+early_stopping_patience_evals: 3
+early_stopping_min_evals: 2

@@ -1,0 +1,6 @@
+stage: 3
+observation:
+  obstacle_rays:
+    enabled: true
+    max_distance: 6.0
+    angles_deg: [-75, -60, -45, -35, -25, -15, 0, 15, 30]

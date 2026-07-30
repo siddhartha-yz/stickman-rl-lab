@@ -1,0 +1,23 @@
+{
+  "source_model": "checkpoints\\stage3-full-recommended\\model.zip",
+  "output_model": "checkpoints\\distill-ultrafar-balanced-v1\\model.zip",
+  "env_config": "configs\\stage3_lidar_waypoints_goalboost_ultrafar.yaml",
+  "seed": 8100,
+  "epochs": 1,
+  "batch_size": 512,
+  "learning_rate": 1e-05,
+  "anchor_coef": 4.0,
+  "final_phase_weight": 2.0,
+  "final_batch_fraction": 0.5,
+  "input_dataset": null,
+  "attempted_episodes": 37.0,
+  "successful_episodes": 16.0,
+  "collection_success_rate": 0.43243243243243246,
+  "successful_steps": 6641.0,
+  "samples": 6641.0,
+  "final_phase_samples": 1971.0,
+  "final_phase_fraction": 0.29679265170908,
+  "final_loss": 0.04821976847373522,
+  "final_target_loss": 0.04821299188412153,
+  "final_anchor_loss": 1.6940696350677451e-06
+}

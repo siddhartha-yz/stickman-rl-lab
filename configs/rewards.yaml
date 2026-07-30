@@ -1,0 +1,12 @@
+progress: 8.0
+goal: 120.0
+time: -0.006
+energy: -0.0015
+alive: 0.0
+height: 0.0
+upright: 0.0
+feet_contact: 0.0
+hand_contact: 0.0
+action_smoothness: 0.0
+joint_limit: -0.01
+out_of_bounds: -25.0

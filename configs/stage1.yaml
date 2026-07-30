@@ -1,0 +1,6 @@
+stage: 1
+target:
+  position: [8.0, 0.55]
+  randomize: false
+episode:
+  max_steps: 700

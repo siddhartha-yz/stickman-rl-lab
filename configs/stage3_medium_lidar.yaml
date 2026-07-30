@@ -1,0 +1,14 @@
+stage: 3
+target:
+  randomize: true
+  min_x: 7.6
+  max_x: 9.2
+obstacles:
+  - type: box
+    position: [5.4, 0.35]
+    size: [0.7, 0.7]
+observation:
+  obstacle_rays:
+    enabled: true
+    max_distance: 6.0
+    angles_deg: [-75, -60, -45, -35, -25, -15, 0, 15, 30]
