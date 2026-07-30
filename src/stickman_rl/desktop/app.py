@@ -18,6 +18,7 @@ from stickman_rl.desktop.controller import (
     DesktopTrainingController,
     TrainingRequest,
     read_json_file,
+    state_name,
     training_options,
 )
 
@@ -693,7 +694,7 @@ class DesktopLabApp:
         self.root.after(16, self._tick)
 
     def _refresh_ui(self) -> None:
-        state = self.status.get("state", "idle")
+        state = state_name(self.status.get("state"), "idle")
         color = COLORS["green"] if state == "running" else COLORS["orange"] if state in {"starting", "paused", "saving", "stopping"} else COLORS["red"] if state == "failed" else COLORS["muted"]
         self.status_label.configure(text=f"● {STATUS_LABELS.get(state, state)}", foreground=color)
         total = nonnegative_int(
@@ -768,7 +769,8 @@ class DesktopLabApp:
         self.history.delete(0, tk.END)
         for item in self.history_items:
             status = item["status"]
-            self.history.insert(tk.END, f"{item['run_id']}\n  Stage {item['request'].get('stage', '?')} · {status.get('num_timesteps', 0)} · {STATUS_LABELS.get(status.get('state'), status.get('state', '?'))}")
+            history_state = state_name(status.get("state"), "?")
+            self.history.insert(tk.END, f"{item['run_id']}\n  Stage {item['request'].get('stage', '?')} · {status.get('num_timesteps', 0)} · {STATUS_LABELS.get(history_state, history_state)}")
 
     def _select_history(self, _event: tk.Event[tk.Misc]) -> None:
         selection = self.history.curselection()
@@ -788,7 +790,7 @@ class DesktopLabApp:
     def _maybe_finish_smoke(self) -> None:
         if not self.smoke_output or self.smoke_finished:
             return
-        state = self.status.get("state")
+        state = state_name(self.status.get("state"), "idle")
         if state not in {"completed", "stopped", "failed"} or self.controller.is_active:
             return
         self.smoke_finished = True
