@@ -282,6 +282,40 @@ def test_status_snapshot_write_failure_emits_live_state_and_recovers(
     assert emitted[-1][1]["status_snapshot_error"] is None  # type: ignore[index]
 
 
+@pytest.mark.parametrize(
+    "info_value",
+    [
+        {"episode": None, "is_success": False, "final_distance": None},
+        "legacy-info-row",
+    ],
+)
+def test_on_step_tolerates_malformed_episode_info(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    info_value: object,
+) -> None:
+    callback = LiveTrainingCallback(run_dir=tmp_path, total_timesteps=64)
+    callback.num_timesteps = 1
+    callback.locals = {
+        "rewards": [1.0],
+        "infos": [info_value],
+        "dones": [True],
+    }
+    monkeypatch.setattr(callback, "_write_metrics", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(callback, "_write_frame", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(callback, "_write_status", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(callback, "_handle_control", lambda: True)
+
+    assert callback._on_step()
+
+    assert len(callback.episodes) == 1
+    episode = callback.episodes[0]
+    assert episode["reward"] == 1.0
+    assert episode["length"] == 1
+    assert episode["success"] is False
+    assert episode["final_distance"] == 0.0
+
+
 def test_control_read_retries_transient_permission_error(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
