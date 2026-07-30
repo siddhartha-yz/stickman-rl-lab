@@ -1278,6 +1278,37 @@ Full Pytest: 65 passed
 
 Checkpoint commit: `aac3e7ecfbdf3f328067cffa1994d5877ff1df4a`.
 
+
+### Goal: normalize room dimensions before physics-canvas transforms
+
+Acceptance criterion: malformed, non-finite, zero, or non-object room metadata must not raise from `PhysicsCanvas._point_transform()`. Valid positive dimensions must be preserved, while invalid values fall back to the verified base environment size.
+
+Observed baseline:
+
+- `width: 0` raised `ZeroDivisionError`.
+- `width: "bad"` raised `TypeError` during scale calculation.
+- List-valued or null room metadata raised `TypeError` before the canvas could render.
+
+Implemented:
+
+- Add verified desktop defaults matching `configs/base.yaml`: width 12.0 and height 7.0.
+- Add one positive finite float boundary for room dimensions.
+- Normalize room width and height inside the existing metadata boundary before any canvas use.
+- Preserve valid numeric strings and positive numeric values.
+
+Verification:
+
+```text
+Desktop app tests: 13 passed
+Zero/string/list/null room baseline: ZeroDivisionError or TypeError
+All four invalid-room transforms after fix: completed
+Normalized default room: 12.0 x 7.0
+Full Ruff: passed
+Full Pytest: 66 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
