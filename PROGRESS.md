@@ -1844,6 +1844,38 @@ Full Pytest: 91 passed
 
 Checkpoint commit: `5c4caf9886b563ea8b9070d724c54ef8ca33436f`.
 
+
+### Goal: retry transient atomic temporary-file write locks
+
+Acceptance criterion: a transient Windows sharing lock on `*.json.tmp` must not fail controller or worker atomic JSON writes before the existing replace retry can run. Both phases must retain the same bounded retry limit.
+
+Observed baseline:
+
+- Worker `atomic_json()` raised `PermissionError` on the first locked `.tmp.write_text()` attempt.
+- Controller `_atomic_json()` failed identically.
+- Only the later temporary-file rename had retry protection, leaving the first atomic-write phase brittle.
+
+Implemented:
+
+- Add bounded temporary text-write retry helpers to worker and controller.
+- Use the same 20 attempts and 5 ms delay as the existing replace retry.
+- Apply worker retry to both formatted and compact JSON snapshots.
+- Preserve existing JSON formatting and final rename behavior.
+
+Verification:
+
+```text
+Affected tests: 42 passed
+Worker baseline attempts before failure: 1
+Controller baseline attempts before failure: 1
+Worker after fix: transient lock recovered, JSON persisted
+Controller after fix: transient lock recovered, JSON persisted
+Full Ruff: passed
+Full Pytest: 93 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
