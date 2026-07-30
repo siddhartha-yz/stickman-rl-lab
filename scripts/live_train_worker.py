@@ -76,6 +76,22 @@ def read_json_with_retry(path: Path, default: Any = None) -> Any:
     return default
 
 
+def finite_float(value: Any, default: float = 0.0) -> float:
+    try:
+        parsed = float(value)
+    except (OverflowError, TypeError, ValueError):
+        return default
+    return parsed if np.isfinite(parsed) else default
+
+
+def nonnegative_int(value: Any, default: int = 0) -> int:
+    try:
+        parsed = int(value)
+    except (OverflowError, TypeError, ValueError):
+        return default
+    return max(0, parsed)
+
+
 def json_safe(value: Any) -> Any:
     if isinstance(value, np.generic):
         return value.item()
@@ -404,20 +420,28 @@ class LiveTrainingCallback(BaseCallback):
 
     def _on_step(self) -> bool:
         rewards = np.asarray(self.locals.get("rewards", []), dtype=float)
-        infos: list[dict[str, Any]] = self.locals.get("infos", [])
+        raw_infos = self.locals.get("infos", [])
+        infos = raw_infos if isinstance(raw_infos, list | tuple) else []
+        info = dict(infos[0]) if infos and isinstance(infos[0], dict) else {}
         dones = np.asarray(self.locals.get("dones", []), dtype=bool)
-        reward = float(rewards[0]) if rewards.size else 0.0
+        reward = finite_float(rewards[0]) if rewards.size else 0.0
         self.current_episode_reward += reward
         self.episode_step += 1
-        if infos:
-            self.last_info = dict(infos[0])
+        if info:
+            self.last_info = info
         if dones.size and bool(dones[0]):
-            info = infos[0] if infos else {}
-            episode_info = info.get("episode", {})
-            episode_reward = float(episode_info.get("r", self.current_episode_reward))
-            episode_length = int(episode_info.get("l", self.episode_step))
+            raw_episode_info = info.get("episode", {})
+            episode_info = raw_episode_info if isinstance(raw_episode_info, dict) else {}
+            episode_reward = finite_float(
+                episode_info.get("r"), self.current_episode_reward
+            )
+            episode_length = nonnegative_int(
+                episode_info.get("l"), self.episode_step
+            )
             success = bool(info.get("is_success", False))
-            final_distance = float(info.get("final_distance", info.get("distance", 0.0)))
+            final_distance = finite_float(
+                info.get("final_distance", info.get("distance")), 0.0
+            )
             self.recent_rewards.append(episode_reward)
             self.recent_successes.append(float(success))
             self.recent_distances.append(final_distance)

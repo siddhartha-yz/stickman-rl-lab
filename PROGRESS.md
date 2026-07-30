@@ -1681,6 +1681,40 @@ Full Pytest: 84 passed
 
 Checkpoint commit: `57a0405359650a2c777d11d6c8e8c2f38465baf5`.
 
+
+### Goal: tolerate malformed episode info without stopping PPO
+
+Acceptance criterion: non-object `infos[0]`, non-object `info["episode"]`, and invalid episode reward/length/distance values must not raise from `_on_step()`. The callback must continue training and record finite fallback metrics.
+
+Observed baseline:
+
+- A completed episode with `info["episode"] = None` raised `AttributeError` at `episode_info.get(...)`.
+- A non-object info row could also fail while converting `infos[0]` to a dictionary.
+- One malformed wrapper payload could therefore terminate an otherwise valid PPO run at episode completion.
+
+Implemented:
+
+- Accept only list/tuple info containers and object-valued first entries.
+- Accept only object-valued episode summaries.
+- Add finite-float and nonnegative-integer conversion boundaries.
+- Fall back to the callback's accumulated episode reward, current episode step, and distance `0.0`.
+- Preserve normal Monitor output unchanged.
+
+Verification:
+
+```text
+Worker tests: 17 passed
+Malformed episode baseline: AttributeError
+Callback continued after fix: true
+Recorded reward: 1.0
+Recorded length: 1
+Recorded final distance: 0.0
+Full Ruff: passed
+Full Pytest: 86 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
