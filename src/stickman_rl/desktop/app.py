@@ -37,6 +37,9 @@ COLORS = {
     "purple": "#a78bfa",
 }
 
+DEFAULT_ROOM_WIDTH = 12.0
+DEFAULT_ROOM_HEIGHT = 7.0
+
 STATUS_LABELS = {
     "starting": "正在启动",
     "running": "训练中",
@@ -66,6 +69,11 @@ def finite_float(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return parsed if math.isfinite(parsed) else None
+
+
+def positive_float(value: Any, default: float) -> float:
+    parsed = finite_float(value)
+    return parsed if parsed is not None and parsed > 0.0 else default
 
 
 def metric_records(value: Any) -> list[dict[str, Any]]:
@@ -121,6 +129,10 @@ def finite_point(value: Any, *, fill_missing: bool = False) -> list[float] | Non
 
 def normalize_metadata_payload(value: Any) -> dict[str, Any]:
     payload = dict(_json_object(value))
+    room = dict(_json_object(payload.get("room")))
+    room["width"] = positive_float(room.get("width"), DEFAULT_ROOM_WIDTH)
+    room["height"] = positive_float(room.get("height"), DEFAULT_ROOM_HEIGHT)
+    payload["room"] = room
     for field, prefix in (("action_names", "action"), ("body_names", "body")):
         names: list[str] = []
         for index, name in enumerate(_json_list(payload.get(field))):

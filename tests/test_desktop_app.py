@@ -51,6 +51,23 @@ def test_metadata_payload_normalizes_name_arrays() -> None:
     assert canvas.metadata["action_names"] == ["action_0"]
 
 
+def test_metadata_payload_normalizes_room_dimensions() -> None:
+    normalized = normalize_metadata_payload({"room": {"width": 0, "height": "bad"}})
+    assert normalized["room"] == {"width": 12.0, "height": 7.0}
+
+    valid = normalize_metadata_payload({"room": {"width": "15.5", "height": 8}})
+    assert valid["room"] == {"width": 15.5, "height": 8.0}
+
+    canvas = PhysicsCanvas.__new__(PhysicsCanvas)
+    canvas.metadata = normalized
+    canvas.winfo_width = lambda: 800
+    canvas.winfo_height = lambda: 500
+    _point, scale, offset_x, offset_y = PhysicsCanvas._point_transform(canvas)
+    assert math.isfinite(scale) and scale > 0.0
+    assert math.isfinite(offset_x)
+    assert math.isfinite(offset_y)
+
+
 def test_finite_point_distinguishes_strict_and_fill_missing_modes() -> None:
     assert finite_point([1.0, "2.0"]) == [1.0, 2.0]
     assert finite_point([1.0]) is None
