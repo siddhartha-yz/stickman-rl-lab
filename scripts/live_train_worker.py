@@ -237,19 +237,36 @@ class LiveTrainingCallback(BaseCallback):
             self.last_disk_frame_write = now
         self.last_frame_write = now
 
-    def _manual_save(self, request_id: str) -> None:
-        save_dir = self.run_dir / "checkpoints"
-        save_dir.mkdir(parents=True, exist_ok=True)
-        save_path = save_dir / f"manual-{self.num_timesteps}"
-        self.model.save(str(save_path))
-        save_payload = {
+    def _manual_save(self, request_id: str) -> dict[str, Any]:
+        save_path = self.run_dir / "checkpoints" / f"manual-{self.num_timesteps}"
+        save_payload: dict[str, Any] = {
             "request_id": request_id,
             "num_timesteps": int(self.num_timesteps),
-            "path": str(save_path.with_suffix(".zip")),
             "saved_at": datetime.now().isoformat(timespec="seconds"),
         }
-        atomic_json(self.run_dir / "last_save.json", save_payload)
+        try:
+            save_path.parent.mkdir(parents=True, exist_ok=True)
+            self.model.save(str(save_path))
+        except Exception as exc:  # noqa: BLE001 - a manual save must not terminate training
+            save_payload.update(
+                {
+                    "state": "failed",
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            )
+        else:
+            save_payload.update(
+                {
+                    "state": "saved",
+                    "path": str(save_path.with_suffix(".zip")),
+                }
+            )
+        try:
+            atomic_json(self.run_dir / "last_save.json", save_payload)
+        except OSError as exc:
+            save_payload["metadata_error"] = f"{type(exc).__name__}: {exc}"
         emit_stdout_event("checkpoint", save_payload, enabled=self.stream_stdout)
+        return save_payload
 
     def _handle_control(self) -> bool:
         control = self._control()
