@@ -1611,6 +1611,43 @@ Full Pytest: 82 passed
 
 Checkpoint commit: `25e2f0ade419407f6173e8b1bb31ee84944848b7`.
 
+
+### Goal: keep PPO training alive when metadata recovery snapshots fail
+
+Acceptance criterion: failure to write the static `metadata.json` recovery snapshot during the first live frame must not terminate training or suppress live metadata/frame events. Metadata should be captured once, cached, exposed in status on failure, and retried without querying the environment every frame.
+
+Observed baseline:
+
+- Injecting `PermissionError` from the first `atomic_json(metadata.json)` call escaped `_write_frame()` during training startup.
+- Disk persistence happened before metadata/frame stdout events, so one locked metadata file could terminate PPO before the desktop received geometry.
+- Because file existence controlled metadata collection, a failed write would otherwise request the same static metadata at frame rate.
+
+Implemented:
+
+- Cache static metadata after the first environment snapshot.
+- Emit live metadata before attempting disk persistence.
+- Record disk exceptions in `metadata_snapshot_error` for status payloads.
+- Back off ordinary metadata writes for five seconds after failure.
+- Reuse the cached metadata for retry instead of re-querying the environment.
+- Let forced start/end frame writes retry immediately.
+- Clear error/backoff state after a successful write.
+
+Verification:
+
+```text
+Worker reliability tests: 14 passed
+Injected metadata write before fix: PermissionError escaped
+First failed write after fix: metadata/frame/log events emitted
+Environment metadata requests after first failure: 1
+Forced retry environment metadata requests: still 1
+Metadata file after successful retry: present
+Error after retry: cleared
+Full Ruff: passed
+Full Pytest: 83 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
