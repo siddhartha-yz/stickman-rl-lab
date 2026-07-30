@@ -1343,6 +1343,40 @@ Full Pytest: 71 passed
 
 Checkpoint commit: `e4a86b85cc265232cf0bd1da00acfedee774b02c`.
 
+
+### Goal: normalize obstacle metadata before physics rendering
+
+Acceptance criterion: non-list obstacle containers, non-object entries, short positions, non-finite coordinates, and non-positive sizes must not raise from `PhysicsCanvas.redraw()`. Valid obstacles must retain order and compatible custom fields.
+
+Observed baseline:
+
+- String-valued obstacle containers and null entries raised `AttributeError`.
+- A one-coordinate box position raised `ValueError` during unpacking.
+- A non-numeric size raised `TypeError` during rectangle arithmetic.
+
+Implemented:
+
+- Accept only list-valued obstacle containers and object-valued entries.
+- Normalize obstacle type names to trimmed lowercase strings, falling back to `box` for invalid type values.
+- Require box/platform/wall entries to have two finite position coordinates and strictly positive finite dimensions.
+- Skip malformed drawable obstacles instead of terminating the renderer.
+- Retain unsupported/custom obstacle objects for existing renderer skip behavior and preserve valid entry order.
+
+Verification:
+
+```text
+Desktop app tests: 19 passed
+Four malformed obstacle cases before fix: AttributeError, ValueError, or TypeError
+Four malformed obstacle redraws after fix: completed
+Malformed obstacle result: empty list
+Valid wall geometry normalized: true
+Custom slope entry retained: true
+Full Ruff: passed
+Full Pytest: 72 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
