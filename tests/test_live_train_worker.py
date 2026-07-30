@@ -105,6 +105,48 @@ def test_frame_snapshot_write_failure_backs_off_without_stopping_training(
     assert callback.last_disk_frame_write > 0.0
 
 
+def test_metrics_snapshot_write_failure_backs_off_without_stopping_training(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    callback = LiveTrainingCallback(
+        run_dir=tmp_path,
+        total_timesteps=64,
+        stream_stdout=True,
+    )
+    callback.episodes.append({"episode": 1, "reward": 1.0})
+    writes = 0
+    emitted: list[str] = []
+
+    def flaky_metrics_write(_path: Path, _payload: object) -> None:
+        nonlocal writes
+        writes += 1
+        if writes == 1:
+            raise PermissionError("simulated metrics lock")
+
+    def capture_event(event_type: str, _payload: object, *, enabled: bool) -> bool:
+        if enabled:
+            emitted.append(event_type)
+        return enabled
+
+    monkeypatch.setattr(worker_module, "atomic_json", flaky_metrics_write)
+    monkeypatch.setattr(worker_module, "emit_stdout_event", capture_event)
+
+    callback._write_metrics(force_disk=True)
+
+    assert writes == 1
+    assert emitted[:2] == ["metrics", "log"]
+    assert callback.metrics_snapshot_error == "PermissionError: simulated metrics lock"
+    assert callback.metrics_snapshot_retry_after > 0.0
+
+    callback._write_metrics(force_disk=True)
+
+    assert writes == 2
+    assert emitted[-1] == "metrics"
+    assert callback.metrics_snapshot_error is None
+    assert callback.metrics_snapshot_retry_after == 0.0
+
+
 def test_control_read_retries_transient_permission_error(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

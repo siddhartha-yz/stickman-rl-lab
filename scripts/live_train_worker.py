@@ -121,6 +121,8 @@ class LiveTrainingCallback(BaseCallback):
         self.last_disk_frame_write = 0.0
         self.frame_snapshot_retry_after = 0.0
         self.frame_snapshot_error: str | None = None
+        self.metrics_snapshot_retry_after = 0.0
+        self.metrics_snapshot_error: str | None = None
         self.started_monotonic = time.monotonic()
         self.started_at = datetime.now().isoformat(timespec="seconds")
         self.last_frame_write = 0.0
@@ -198,6 +200,7 @@ class LiveTrainingCallback(BaseCallback):
             "from_scratch": True,
             "event_transport": "stdout" if self.stream_stdout else "disk-only",
             "frame_snapshot_error": self.frame_snapshot_error,
+            "metrics_snapshot_error": self.metrics_snapshot_error,
         }
 
     def _write_status(self, state: str | None = None) -> None:
@@ -206,13 +209,31 @@ class LiveTrainingCallback(BaseCallback):
         self.stream_stdout = emit_stdout_event("status", payload, enabled=self.stream_stdout)
         self.last_status_write = time.monotonic()
 
-    def _write_metrics(self) -> None:
+    def _write_metrics(self, force_disk: bool = False) -> None:
         payload = {
             "episodes": list(self.episodes),
             "updates": list(self.updates),
         }
-        atomic_json(self.metrics_path, payload)
         self.stream_stdout = emit_stdout_event("metrics", payload, enabled=self.stream_stdout)
+        now = time.monotonic()
+        if not force_disk and now < self.metrics_snapshot_retry_after:
+            return
+        try:
+            atomic_json(self.metrics_path, payload)
+        except OSError as exc:
+            self.metrics_snapshot_error = f"{type(exc).__name__}: {exc}"
+            self.metrics_snapshot_retry_after = now + 5.0
+            self.stream_stdout = emit_stdout_event(
+                "log",
+                {
+                    "stream": "worker",
+                    "text": f"metrics snapshot write failed; retrying later: {self.metrics_snapshot_error}",
+                },
+                enabled=self.stream_stdout,
+            )
+        else:
+            self.metrics_snapshot_retry_after = 0.0
+            self.metrics_snapshot_error = None
 
     def _write_frame(self, force_disk: bool = False) -> None:
         needs_metadata = not self.metadata_path.exists()
@@ -331,7 +352,7 @@ class LiveTrainingCallback(BaseCallback):
         self.state = "running"
         self._write_frame(force_disk=True)
         self._write_status()
-        self._write_metrics()
+        self._write_metrics(force_disk=True)
 
     def _on_step(self) -> bool:
         rewards = np.asarray(self.locals.get("rewards", []), dtype=float)
@@ -386,7 +407,7 @@ class LiveTrainingCallback(BaseCallback):
 
     def _on_training_end(self) -> None:
         self._write_frame(force_disk=True)
-        self._write_metrics()
+        self._write_metrics(force_disk=True)
         self._write_status("stopped" if self.stop_requested else "saving")
 
 
