@@ -167,6 +167,66 @@ def test_desktop_controller_persists_non_event_worker_output(
     assert any(event.get("type") == "status" for event in controller.drain_events())
 
 
+def test_sequential_runs_keep_late_output_bound_to_original_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_root = tmp_path / "project"
+    (project_root / "configs").mkdir(parents=True)
+    (project_root / "configs" / "train_fake.yaml").write_text("placeholder: true\n", encoding="utf-8")
+    scripts_dir = project_root / "scripts"
+    scripts_dir.mkdir()
+    (scripts_dir / "live_train_worker.py").write_text(
+        "import argparse\n"
+        "parser = argparse.ArgumentParser(add_help=False)\n"
+        "parser.add_argument('--run-id')\n"
+        "args, _ = parser.parse_known_args()\n"
+        "for index in range(10000):\n"
+        "    print(f'{args.run_id} line {index}')\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(controller_module, "PROJECT_ROOT", project_root)
+
+    controller = DesktopTrainingController(
+        runs_root=tmp_path / "runs",
+        python_executable=sys.executable,
+    )
+    first_run = controller.start(
+        TrainingRequest(stage=1, timesteps=64, seed=11, train_config="configs/train_fake.yaml")
+    )
+    assert controller.process is not None
+    assert controller.process.wait(timeout=20.0) == 0
+
+    second_run = controller.start(
+        TrainingRequest(stage=1, timesteps=64, seed=12, train_config="configs/train_fake.yaml")
+    )
+    assert controller.process is not None
+    assert controller.process.wait(timeout=20.0) == 0
+
+    first_log_path = controller.runs_root / first_run / "worker.log"
+    second_log_path = controller.runs_root / second_run / "worker.log"
+    deadline = time.monotonic() + 10.0
+    while time.monotonic() < deadline:
+        first_log = first_log_path.read_text(encoding="utf-8")
+        second_log = second_log_path.read_text(encoding="utf-8")
+        if (
+            f"{first_run} line 9999" in first_log
+            and f"{second_run} line 9999" in second_log
+            and second_log.count("process exited with code 0") == 1
+        ):
+            break
+        time.sleep(0.05)
+    else:
+        raise AssertionError("Sequential worker output did not finish draining")
+
+    assert first_run not in second_log
+    assert second_run not in first_log
+    assert first_log.count("process exited with code 0") == 1
+    assert second_log.count("process exited with code 0") == 1
+    current_events = controller.drain_events(max_items=20_000)
+    assert not any(first_run in str(event) for event in current_events)
+
+
 def test_desktop_controller_records_spawn_failure(tmp_path: Path) -> None:
     controller = DesktopTrainingController(
         runs_root=tmp_path,
