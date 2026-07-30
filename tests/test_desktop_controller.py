@@ -7,7 +7,25 @@ from pathlib import Path
 import pytest
 
 import stickman_rl.desktop.controller as controller_module
-from stickman_rl.desktop.controller import DesktopTrainingController, TrainingRequest
+from stickman_rl.desktop.controller import (
+    DesktopEventBuffer,
+    DesktopTrainingController,
+    TrainingRequest,
+)
+
+
+def test_event_buffer_downgrades_malformed_structured_events() -> None:
+    events = DesktopEventBuffer()
+
+    events.put([])
+    events.put({"type": "checkpoint", "payload": "not-an-object"})
+    events.put({"type": "status", "payload": {"state": "running"}})
+
+    drained = events.drain()
+    assert drained[0] == {"type": "status", "payload": {"state": "running"}}
+    diagnostics = [event["payload"]["text"] for event in drained[1:]]
+    assert len(diagnostics) == 2
+    assert all("Ignored malformed structured event" in text for text in diagnostics)
 
 
 def test_desktop_controller_streams_real_training_events(tmp_path: Path) -> None:
