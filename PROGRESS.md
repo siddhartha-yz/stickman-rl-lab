@@ -1148,6 +1148,38 @@ Full Pytest: 61 passed
 
 Checkpoint commit: `bf916d97d4a611737b660b8b3fcd5c0115c6dbae`.
 
+### Goal: sanitize body state elements before physics redraw
+
+Acceptance criterion: malformed, missing, or non-finite body position and angle elements must not raise from `PhysicsCanvas.redraw()`. Array length and body-index alignment must remain stable, while valid numeric and convertible string values are retained.
+
+Observed baseline:
+
+- A real `PhysicsCanvas.redraw()` call with an object-valued body angle raised `TypeError` during `float(angle)`.
+- Object, short, or non-finite body positions would subsequently break coordinate rotation or indexing.
+- One damaged rigid-body sample could therefore stop the entire live physics canvas.
+
+Implemented:
+
+- Normalize every body position to exactly two finite floats.
+- Replace invalid or missing x/y coordinates with `0.0` while preserving one output row per input row.
+- Normalize every body angle to a finite float and replace invalid/non-finite values with `0.0`.
+- Preserve valid numeric values and convertible numeric strings.
+
+Verification:
+
+```text
+Desktop app tests: 9 passed
+Object-valued angle baseline: TypeError
+Normalized invalid position: [0.0, 0.0]
+Normalized invalid angle: 0.0
+Mixed valid/string/NaN/short inputs: verified
+Real PhysicsCanvas.redraw after fix: completed
+Full Ruff: passed
+Full Pytest: 61 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`

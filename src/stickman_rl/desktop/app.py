@@ -117,8 +117,18 @@ def normalize_frame_payload(value: Any) -> dict[str, Any]:
     training["action"] = actions
     frame = dict(_json_object(payload.get("frame")))
     frame["info"] = _json_object(frame.get("info"))
-    frame["body_positions"] = _json_list(frame.get("body_positions"))
-    frame["body_angles"] = _json_list(frame.get("body_angles"))
+    positions: list[list[float]] = []
+    for value in _json_list(frame.get("body_positions")):
+        coordinates = value if isinstance(value, list) else []
+        x = finite_float(coordinates[0]) if len(coordinates) >= 1 else None
+        y = finite_float(coordinates[1]) if len(coordinates) >= 2 else None
+        positions.append([x if x is not None else 0.0, y if y is not None else 0.0])
+    frame["body_positions"] = positions
+    angles: list[float] = []
+    for value in _json_list(frame.get("body_angles")):
+        parsed = finite_float(value)
+        angles.append(parsed if parsed is not None else 0.0)
+    frame["body_angles"] = angles
     payload["training"] = training
     payload["frame"] = frame
     return payload
