@@ -132,15 +132,27 @@ def optional_finite_float(value: Any) -> float | None:
     return parsed if np.isfinite(parsed) else None
 
 
-def json_safe(value: Any) -> Any:
+def json_safe(value: Any, active_containers: set[int] | None = None) -> Any:
+    if active_containers is None:
+        active_containers = set()
     if isinstance(value, np.generic):
-        return json_safe(value.item())
+        return json_safe(value.item(), active_containers)
     if isinstance(value, np.ndarray):
-        return json_safe(value.tolist())
-    if isinstance(value, dict):
-        return {str(key): json_safe(item) for key, item in value.items()}
-    if isinstance(value, list | tuple):
-        return [json_safe(item) for item in value]
+        return json_safe(value.tolist(), active_containers)
+    if isinstance(value, dict | list | tuple):
+        identity = id(value)
+        if identity in active_containers:
+            return "<recursive-reference>"
+        active_containers.add(identity)
+        try:
+            if isinstance(value, dict):
+                return {
+                    str(key): json_safe(item, active_containers)
+                    for key, item in value.items()
+                }
+            return [json_safe(item, active_containers) for item in value]
+        finally:
+            active_containers.remove(identity)
     if isinstance(value, float):
         return value if np.isfinite(value) else None
     if value is None or isinstance(value, str | int | bool):

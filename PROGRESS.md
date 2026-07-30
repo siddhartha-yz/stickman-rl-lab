@@ -1876,6 +1876,39 @@ Full Pytest: 93 passed
 
 Checkpoint commit: `3825fae804d0ce6b0db8b9a1a9c9c3d96313caeb`.
 
+
+### Goal: stop recursive info containers from overflowing json_safe
+
+Acceptance criterion: self-referential dict/list payloads must not raise `RecursionError` during status, frame, or event serialization. Repeated references that are not cyclic must still serialize normally.
+
+Observed baseline:
+
+- A dict containing itself raised `RecursionError` in `json_safe()`.
+- A list containing itself failed identically.
+- A third-party wrapper could therefore terminate training by placing a cycle inside environment info.
+
+Implemented:
+
+- Track container identities only along the current recursion path.
+- Replace a detected cycle with the stable marker `<recursive-reference>`.
+- Remove identities after each branch so repeated non-cyclic shared objects remain fully serialized.
+- Apply the same handling to dict, list, and tuple containers.
+
+Verification:
+
+```text
+Worker tests: 24 passed
+Recursive dict baseline: RecursionError
+Recursive list baseline: RecursionError
+Recursive dict/list after fix: <recursive-reference>
+Repeated non-cyclic object after fix: serialized twice
+Strict JSON after fix: passed
+Full Ruff: passed
+Full Pytest: 94 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
