@@ -1474,6 +1474,37 @@ Full Pytest: 76 passed
 
 Checkpoint commit: `d1db32a4f5f7eb6b83636ac830cae73582e2451b`.
 
+
+### Goal: keep PPO training alive when the desktop stdout pipe closes
+
+Acceptance criterion: if the desktop reader exits or closes the worker's stdout pipe, structured event emission must not raise into PPO callbacks, model saving, or worker shutdown. After the first failure, high-frequency stdout streaming should disable itself while disk snapshots continue.
+
+Observed baseline:
+
+- Writing a status event to a real OS pipe whose read end was closed raised `OSError: [Errno 22] Invalid argument` on Windows.
+- The exception escaped `emit_stdout_event()` and could terminate the training process from status, metrics, metadata, frame, checkpoint, or final-status paths.
+
+Implemented:
+
+- Make `emit_stdout_event()` return a boolean transport result and absorb closed/invalid stream `OSError` and `ValueError` failures.
+- Update callback event paths to persist the returned state in `stream_stdout`.
+- Disable subsequent stdout emissions after the first failure, avoiding repeated exceptions at frame rate.
+- Keep disk status, metrics, frame, and checkpoint behavior unchanged.
+- Keep final and failure event sends best-effort so they cannot invalidate model persistence or cleanup.
+
+Verification:
+
+```text
+Worker reliability tests: 11 passed
+Real closed OS pipe before fix: OSError [Errno 22]
+Real closed OS pipe after fix: emit_result=False
+Callback switches to disk-only after first failure: true
+Full Ruff: passed
+Full Pytest: 78 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`

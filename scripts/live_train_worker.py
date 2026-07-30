@@ -23,14 +23,18 @@ EVENT_PREFIX = "STICKMAN_EVENT\t"
 METRIC_HISTORY_LIMIT = 500
 
 
-def emit_stdout_event(event_type: str, payload: Any, *, enabled: bool) -> None:
+def emit_stdout_event(event_type: str, payload: Any, *, enabled: bool) -> bool:
     if not enabled:
-        return
+        return False
     event = {"type": event_type, "payload": json_safe(payload)}
-    print(
-        f"{EVENT_PREFIX}{json.dumps(event, ensure_ascii=False, separators=(',', ':'))}",
-        flush=True,
-    )
+    try:
+        print(
+            f"{EVENT_PREFIX}{json.dumps(event, ensure_ascii=False, separators=(',', ':'))}",
+            flush=True,
+        )
+    except (OSError, ValueError):
+        return False
+    return True
 
 
 def replace_with_retry(temporary: Path, destination: Path) -> None:
@@ -196,7 +200,7 @@ class LiveTrainingCallback(BaseCallback):
     def _write_status(self, state: str | None = None) -> None:
         payload = self._status_payload(state)
         atomic_json(self.status_path, payload)
-        emit_stdout_event("status", payload, enabled=self.stream_stdout)
+        self.stream_stdout = emit_stdout_event("status", payload, enabled=self.stream_stdout)
         self.last_status_write = time.monotonic()
 
     def _write_metrics(self) -> None:
@@ -205,7 +209,7 @@ class LiveTrainingCallback(BaseCallback):
             "updates": list(self.updates),
         }
         atomic_json(self.metrics_path, payload)
-        emit_stdout_event("metrics", payload, enabled=self.stream_stdout)
+        self.stream_stdout = emit_stdout_event("metrics", payload, enabled=self.stream_stdout)
 
     def _write_frame(self, force_disk: bool = False) -> None:
         needs_metadata = not self.metadata_path.exists()
@@ -215,7 +219,9 @@ class LiveTrainingCallback(BaseCallback):
         if needs_metadata:
             metadata = json_safe(snapshot.pop("metadata"))
             atomic_json(self.metadata_path, metadata)
-            emit_stdout_event("metadata", metadata, enabled=self.stream_stdout)
+            self.stream_stdout = emit_stdout_event(
+                "metadata", metadata, enabled=self.stream_stdout
+            )
         actions = np.asarray(self.locals.get("actions", np.zeros((1, 8), dtype=np.float32)))
         action = actions[0].astype(float).tolist() if actions.ndim > 1 else actions.astype(float).tolist()
         payload = json_safe(
@@ -231,7 +237,7 @@ class LiveTrainingCallback(BaseCallback):
                 },
             }
         )
-        emit_stdout_event("frame", payload, enabled=self.stream_stdout)
+        self.stream_stdout = emit_stdout_event("frame", payload, enabled=self.stream_stdout)
         now = time.monotonic()
         if force_disk or now - self.last_disk_frame_write >= 0.2:
             atomic_json_compact(self.frame_path, payload)
@@ -266,7 +272,9 @@ class LiveTrainingCallback(BaseCallback):
             atomic_json(self.run_dir / "last_save.json", save_payload)
         except OSError as exc:
             save_payload["metadata_error"] = f"{type(exc).__name__}: {exc}"
-        emit_stdout_event("checkpoint", save_payload, enabled=self.stream_stdout)
+        self.stream_stdout = emit_stdout_event(
+            "checkpoint", save_payload, enabled=self.stream_stdout
+        )
         return save_payload
 
     def _handle_control(self) -> bool:
