@@ -103,6 +103,23 @@ def _json_object(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _json_list(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
+
+
+def normalize_frame_payload(value: Any) -> dict[str, Any]:
+    payload = dict(_json_object(value))
+    training = dict(_json_object(payload.get("training")))
+    training["action"] = _json_list(training.get("action"))
+    frame = dict(_json_object(payload.get("frame")))
+    frame["info"] = _json_object(frame.get("info"))
+    frame["body_positions"] = _json_list(frame.get("body_positions"))
+    frame["body_angles"] = _json_list(frame.get("body_angles"))
+    payload["training"] = training
+    payload["frame"] = frame
+    return payload
+
+
 def _history_timestamp(value: Any, fallback: float) -> float:
     if isinstance(value, int | float) and not isinstance(value, bool):
         numeric = float(value)
@@ -209,8 +226,9 @@ class PhysicsCanvas(tk.Canvas):
         self.redraw()
 
     def set_frame(self, frame: dict[str, Any]) -> None:
+        frame = normalize_frame_payload(frame)
         self.frame = frame
-        episode = nonnegative_int(frame.get("training", {}).get("episode", 0))
+        episode = nonnegative_int(frame["training"].get("episode", 0))
         if self.last_episode is not None and episode != self.last_episode:
             self.trail.clear()
         self.last_episode = episode
@@ -605,10 +623,11 @@ class DesktopLabApp:
             self.metadata = payload
             self.physics.set_metadata(payload)
         elif event_type == "frame":
-            self.frame = payload
+            normalized = normalize_frame_payload(payload)
+            self.frame = normalized
             self.frames_received += 1
             self.frame_times.append(time.monotonic())
-            self.physics.set_frame(payload)
+            self.physics.set_frame(normalized)
         elif event_type == "status":
             self.status = payload
         elif event_type == "metrics":

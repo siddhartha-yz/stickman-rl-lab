@@ -1084,6 +1084,38 @@ Full Pytest: 60 passed
 
 Checkpoint commit: `1e99836b9bf6c5f305034fc8e0b1013ce1d52d95`.
 
+### Goal: normalize nested live frame structures before rendering
+
+Acceptance criterion: JSON-valid frame events with non-object `training`, non-object `frame`/`info`, or non-list action/body arrays must not raise from `PhysicsCanvas.set_frame()`, redraw, or the desktop action panel. Valid nested data must retain its order and values.
+
+Observed baseline:
+
+- Calling `PhysicsCanvas.set_frame()` with string-valued `training` raised `AttributeError` on `.get()`.
+- List-valued `frame` would reach redraw and fail when mapping fields were accessed.
+- Top-level event validation therefore did not protect the renderer from nested schema drift or damaged persisted frames.
+
+Implemented:
+
+- Add one tested `normalize_frame_payload()` boundary.
+- Normalize `training`, `frame`, and nested `info` to objects.
+- Normalize action, body-position, and body-angle values to lists.
+- Apply the same normalizer in the desktop event handler and the `PhysicsCanvas` entry point so app state never retains the malformed envelope.
+- Preserve all valid nested fields, including episode, target position, actions, body positions, angles, and success info.
+
+Verification:
+
+```text
+Desktop app tests: 9 passed
+String-valued training baseline: AttributeError
+Normalized training after fix: {action: []}
+Normalized frame after fix: empty info/body arrays
+Valid nested values retained: true
+Full Ruff: passed
+Full Pytest: 61 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
