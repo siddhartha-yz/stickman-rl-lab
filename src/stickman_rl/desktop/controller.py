@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import queue
 import subprocess
 import sys
 import threading
@@ -20,6 +19,43 @@ from stickman_rl.config import PROJECT_ROOT
 EVENT_PREFIX = "STICKMAN_EVENT\t"
 ACTIVE_STATES = {"starting", "running", "paused", "saving", "stopping"}
 ControlAction = Literal["pause", "resume", "stop", "save"]
+LATEST_EVENT_ORDER = ("metadata", "status", "metrics", "frame", "checkpoint")
+
+
+class DesktopEventBuffer:
+    """Coalesce live state and bound diagnostic events while the UI is blocked."""
+
+    def __init__(self, max_pending: int = 500) -> None:
+        self._latest: dict[str, dict[str, Any]] = {}
+        self._pending: deque[dict[str, Any]] = deque(maxlen=max_pending)
+        self._lock = threading.Lock()
+
+    def put(self, event: dict[str, Any]) -> None:
+        event_type = str(event.get("type", ""))
+        with self._lock:
+            if event_type in LATEST_EVENT_ORDER:
+                self._latest[event_type] = event
+            else:
+                self._pending.append(event)
+
+    def drain(self, max_items: int = 500) -> list[dict[str, Any]]:
+        if max_items <= 0:
+            return []
+        with self._lock:
+            events: list[dict[str, Any]] = []
+            for event_type in LATEST_EVENT_ORDER:
+                if len(events) >= max_items:
+                    break
+                event = self._latest.pop(event_type, None)
+                if event is not None:
+                    events.append(event)
+            while self._pending and len(events) < max_items:
+                events.append(self._pending.popleft())
+            return events
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._latest) + len(self._pending)
 
 
 def _replace_with_retry(temporary: Path, destination: Path) -> None:
@@ -129,7 +165,7 @@ class DesktopTrainingController:
         self.process: subprocess.Popen[str] | None = None
         self.run_id: str | None = None
         self.run_dir: Path | None = None
-        self._events: queue.Queue[dict[str, Any]] = queue.Queue()
+        self._events = DesktopEventBuffer()
         self._stderr: deque[str] = deque(maxlen=200)
         self._threads: list[threading.Thread] = []
         self._log_lock = threading.RLock()
@@ -152,7 +188,7 @@ class DesktopTrainingController:
         self.run_id = run_id
         self.run_dir = run_dir
         self.process = None
-        event_queue: queue.Queue[dict[str, Any]] = queue.Queue()
+        event_queue = DesktopEventBuffer()
         stderr_buffer: deque[str] = deque(maxlen=200)
         self._events = event_queue
         self._stderr = stderr_buffer
@@ -283,7 +319,7 @@ class DesktopTrainingController:
         self,
         process: subprocess.Popen[str],
         run_dir: Path,
-        event_queue: queue.Queue[dict[str, Any]],
+        event_queue: DesktopEventBuffer,
         stderr_buffer: deque[str],
         returncode: int,
     ) -> None:
@@ -319,7 +355,7 @@ class DesktopTrainingController:
         self,
         process: subprocess.Popen[str],
         run_dir: Path,
-        event_queue: queue.Queue[dict[str, Any]],
+        event_queue: DesktopEventBuffer,
         stderr_buffer: deque[str],
         reader_threads: tuple[threading.Thread, threading.Thread],
     ) -> None:
@@ -332,7 +368,7 @@ class DesktopTrainingController:
         self,
         process: subprocess.Popen[str],
         run_dir: Path,
-        event_queue: queue.Queue[dict[str, Any]],
+        event_queue: DesktopEventBuffer,
     ) -> None:
         assert process.stdout is not None
         for raw_line in process.stdout:
@@ -353,7 +389,7 @@ class DesktopTrainingController:
         self,
         process: subprocess.Popen[str],
         run_dir: Path,
-        event_queue: queue.Queue[dict[str, Any]],
+        event_queue: DesktopEventBuffer,
         stderr_buffer: deque[str],
     ) -> None:
         assert process.stderr is not None
@@ -365,13 +401,7 @@ class DesktopTrainingController:
                 event_queue.put({"type": "log", "payload": {"stream": "stderr", "text": line}})
 
     def drain_events(self, max_items: int = 500) -> list[dict[str, Any]]:
-        events: list[dict[str, Any]] = []
-        for _ in range(max_items):
-            try:
-                events.append(self._events.get_nowait())
-            except queue.Empty:
-                break
-        return events
+        return self._events.drain(max_items)
 
     def control(self, action: ControlAction) -> dict[str, Any]:
         if self.run_dir is None:
