@@ -39,6 +39,8 @@ COLORS = {
 
 DEFAULT_ROOM_WIDTH = 12.0
 DEFAULT_ROOM_HEIGHT = 7.0
+DEFAULT_TARGET_POSITION = [9.5, 0.55]
+DEFAULT_TARGET_SIZE = [0.8, 0.9]
 
 STATUS_LABELS = {
     "starting": "正在启动",
@@ -133,6 +135,13 @@ def normalize_metadata_payload(value: Any) -> dict[str, Any]:
     room["width"] = positive_float(room.get("width"), DEFAULT_ROOM_WIDTH)
     room["height"] = positive_float(room.get("height"), DEFAULT_ROOM_HEIGHT)
     payload["room"] = room
+    target = dict(_json_object(payload.get("target")))
+    target["position"] = finite_point(target.get("position")) or list(DEFAULT_TARGET_POSITION)
+    target_size = finite_point(target.get("size"))
+    if target_size is None or any(value <= 0.0 for value in target_size):
+        target_size = list(DEFAULT_TARGET_SIZE)
+    target["size"] = target_size
+    payload["target"] = target
     for field, prefix in (("action_names", "action"), ("body_names", "body")):
         names: list[str] = []
         for index, name in enumerate(_json_list(payload.get(field))):

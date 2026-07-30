@@ -68,6 +68,51 @@ def test_metadata_payload_normalizes_room_dimensions() -> None:
     assert math.isfinite(offset_y)
 
 
+@pytest.mark.parametrize(
+    "target",
+    [
+        None,
+        [],
+        {"position": [8], "size": [1, 1]},
+        {"position": [8, 1], "size": ["bad", 1]},
+        {"position": [8, 1], "size": None},
+    ],
+)
+def test_metadata_payload_normalizes_target_geometry(target: object) -> None:
+    normalized = normalize_metadata_payload(
+        {
+            "room": {"width": 12, "height": 7},
+            "target": target,
+            "obstacles": [],
+            "waypoints": [],
+            "body_names": [],
+            "body_geometry": {},
+        }
+    )
+    assert len(normalized["target"]["position"]) == 2
+    assert all(math.isfinite(value) for value in normalized["target"]["position"])
+    assert all(value > 0.0 for value in normalized["target"]["size"])
+
+    canvas = PhysicsCanvas.__new__(PhysicsCanvas)
+    canvas.metadata = normalized
+    canvas.frame = normalize_frame_payload(
+        {"frame": {"body_positions": [], "body_angles": [], "info": {}}}
+    )
+    canvas.trail = deque(maxlen=140)
+    canvas.winfo_width = lambda: 800
+    canvas.winfo_height = lambda: 500
+    for name in (
+        "delete",
+        "create_text",
+        "create_line",
+        "create_rectangle",
+        "create_oval",
+        "create_polygon",
+    ):
+        setattr(canvas, name, lambda *args, **kwargs: None)
+    PhysicsCanvas.redraw(canvas)
+
+
 def test_finite_point_distinguishes_strict_and_fill_missing_modes() -> None:
     assert finite_point([1.0, "2.0"]) == [1.0, 2.0]
     assert finite_point([1.0]) is None
