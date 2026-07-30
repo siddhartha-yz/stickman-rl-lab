@@ -832,6 +832,36 @@ Full Pytest: 53 passed
 
 Checkpoint commit: `bc090b250cc9d7c597fa9e9a35ea9fd3aba9115b`.
 
+### Goal: tolerate invalid percentage metrics in desktop refresh
+
+Acceptance criterion: malformed persisted or streamed success-rate values must not raise from the Tk refresh loop. Invalid values should render as the same em-dash placeholder used for missing numeric metrics, while valid percentages remain unchanged.
+
+Observed baseline:
+
+- `format_percent("not-a-number")` raised `ValueError`.
+- `format_percent({"bad": 1})` raised `TypeError`.
+- `_refresh_ui()` calls this function every tick for `rolling_success_rate`, so one bad value could stop all subsequent desktop updates.
+
+Implemented:
+
+- Match `format_number()` error handling by catching conversion `TypeError` and `ValueError`.
+- Return `—` for invalid percentage inputs without changing valid output formatting.
+- Add regression assertions for both string and object inputs.
+
+Verification:
+
+```text
+Desktop app tests: 6 passed
+Invalid string before fix: ValueError
+Invalid object before fix: TypeError
+Invalid string/object after fix: —
+Valid 0.625 after fix: 62.5%
+Full Ruff: passed
+Full Pytest: 53 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`

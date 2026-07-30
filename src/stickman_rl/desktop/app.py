@@ -71,7 +71,10 @@ def format_number(value: Any, digits: int = 2) -> str:
 def format_percent(value: Any) -> str:
     if value is None:
         return "—"
-    return f"{float(value) * 100:.1f}%"
+    try:
+        return f"{float(value) * 100:.1f}%"
+    except (TypeError, ValueError):
+        return "—"
 
 
 def _json_object(value: Any) -> dict[str, Any]:

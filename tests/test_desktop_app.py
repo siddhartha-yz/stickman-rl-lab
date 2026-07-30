@@ -20,6 +20,8 @@ def test_desktop_formatters_handle_missing_values() -> None:
     assert format_number(1.234, 2) == "1.23"
     assert format_percent(None) == "—"
     assert format_percent(0.625) == "62.5%"
+    assert format_percent("not-a-number") == "—"
+    assert format_percent({"bad": 1}) == "—"
 
 
 def test_run_summaries_sorts_latest_first(tmp_path: Path) -> None:
