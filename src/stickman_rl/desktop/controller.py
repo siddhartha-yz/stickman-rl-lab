@@ -132,7 +132,7 @@ class DesktopTrainingController:
         self._stderr: deque[str] = deque(maxlen=200)
         self._threads: list[threading.Thread] = []
         self._log_lock = threading.RLock()
-        self._exit_logged = False
+        self._logged_exit_processes: set[int] = set()
 
     @property
     def is_active(self) -> bool:
@@ -148,10 +148,11 @@ class DesktopTrainingController:
         self.run_id = run_id
         self.run_dir = run_dir
         self.process = None
-        self._events = queue.Queue()
-        self._stderr.clear()
+        event_queue: queue.Queue[dict[str, Any]] = queue.Queue()
+        stderr_buffer: deque[str] = deque(maxlen=200)
+        self._events = event_queue
+        self._stderr = stderr_buffer
         self._threads = []
-        self._exit_logged = False
         request_payload = {"run_id": run_id, **asdict(validated), "from_scratch": True}
         _atomic_json(run_dir / "request.json", request_payload)
         _atomic_json(run_dir / "control.json", {"paused": False, "stop": False, "save_request": None})
@@ -179,7 +180,11 @@ class DesktopTrainingController:
         creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
         environment = os.environ.copy()
         environment["PYTHONUNBUFFERED"] = "1"
-        self._append_worker_log("controller", f"launching: {subprocess.list2cmdline(command)}")
+        self._append_worker_log(
+            "controller",
+            f"launching: {subprocess.list2cmdline(command)}",
+            run_dir=run_dir,
+        )
         try:
             self.process = subprocess.Popen(
                 command,
@@ -203,60 +208,100 @@ class DesktopTrainingController:
                 **request_payload,
             }
             _atomic_json(run_dir / "status.json", failure)
-            self._append_worker_log("controller", message)
+            self._append_worker_log("controller", message, run_dir=run_dir)
             raise RuntimeError(message) from exc
-        self._append_worker_log("controller", f"started pid={self.process.pid}")
+        process = self.process
+        self._append_worker_log("controller", f"started pid={process.pid}", run_dir=run_dir)
         self._threads = [
-            threading.Thread(target=self._read_stdout, daemon=True),
-            threading.Thread(target=self._read_stderr, daemon=True),
-            threading.Thread(target=self._watch_process, daemon=True),
+            threading.Thread(
+                target=self._read_stdout,
+                args=(process, run_dir, event_queue),
+                daemon=True,
+            ),
+            threading.Thread(
+                target=self._read_stderr,
+                args=(process, run_dir, event_queue, stderr_buffer),
+                daemon=True,
+            ),
+            threading.Thread(
+                target=self._watch_process,
+                args=(process, run_dir),
+                daemon=True,
+            ),
         ]
         for thread in self._threads:
             thread.start()
         return run_id
 
-    def _append_worker_log(self, stream: str, text: str) -> None:
-        if self.run_dir is None:
+    def _append_worker_log(
+        self,
+        stream: str,
+        text: str,
+        *,
+        run_dir: Path | None = None,
+    ) -> None:
+        destination = run_dir or self.run_dir
+        if destination is None:
             return
         timestamp = datetime.now().isoformat(timespec="milliseconds")
-        with self._log_lock, (self.run_dir / "worker.log").open("a", encoding="utf-8") as handle:
+        with self._log_lock, (destination / "worker.log").open("a", encoding="utf-8") as handle:
             handle.write(f"[{timestamp}] {stream}: {text}\n")
 
-    def _record_process_exit(self, returncode: int) -> None:
+    def _record_process_exit(
+        self,
+        process: subprocess.Popen[str],
+        run_dir: Path,
+        returncode: int,
+    ) -> None:
+        process_key = id(process)
         with self._log_lock:
-            if self._exit_logged:
+            if process_key in self._logged_exit_processes:
                 return
-            self._exit_logged = True
-        self._append_worker_log("controller", f"process exited with code {returncode}")
+            self._logged_exit_processes.add(process_key)
+        self._append_worker_log(
+            "controller",
+            f"process exited with code {returncode}",
+            run_dir=run_dir,
+        )
 
-    def _watch_process(self) -> None:
-        assert self.process is not None
-        self._record_process_exit(self.process.wait())
+    def _watch_process(self, process: subprocess.Popen[str], run_dir: Path) -> None:
+        self._record_process_exit(process, run_dir, process.wait())
 
-    def _read_stdout(self) -> None:
-        assert self.process is not None and self.process.stdout is not None
-        for raw_line in self.process.stdout:
+    def _read_stdout(
+        self,
+        process: subprocess.Popen[str],
+        run_dir: Path,
+        event_queue: queue.Queue[dict[str, Any]],
+    ) -> None:
+        assert process.stdout is not None
+        for raw_line in process.stdout:
             line = raw_line.rstrip("\r\n")
             if line.startswith(EVENT_PREFIX):
                 try:
                     event = json.loads(line[len(EVENT_PREFIX) :])
                 except json.JSONDecodeError:
-                    self._append_worker_log("stdout", line)
-                    self._events.put({"type": "log", "payload": {"stream": "stdout", "text": line}})
+                    self._append_worker_log("stdout", line, run_dir=run_dir)
+                    event_queue.put({"type": "log", "payload": {"stream": "stdout", "text": line}})
                 else:
-                    self._events.put(event)
+                    event_queue.put(event)
             elif line:
-                self._append_worker_log("stdout", line)
-                self._events.put({"type": "log", "payload": {"stream": "stdout", "text": line}})
+                self._append_worker_log("stdout", line, run_dir=run_dir)
+                event_queue.put({"type": "log", "payload": {"stream": "stdout", "text": line}})
 
-    def _read_stderr(self) -> None:
-        assert self.process is not None and self.process.stderr is not None
-        for raw_line in self.process.stderr:
+    def _read_stderr(
+        self,
+        process: subprocess.Popen[str],
+        run_dir: Path,
+        event_queue: queue.Queue[dict[str, Any]],
+        stderr_buffer: deque[str],
+    ) -> None:
+        assert process.stderr is not None
+        for raw_line in process.stderr:
             line = raw_line.rstrip("\r\n")
             if line:
-                self._stderr.append(line)
-                self._append_worker_log("stderr", line)
-                self._events.put({"type": "log", "payload": {"stream": "stderr", "text": line}})
+                stderr_buffer.append(line)
+                self._append_worker_log("stderr", line, run_dir=run_dir)
+                event_queue.put({"type": "log", "payload": {"stream": "stderr", "text": line}})
 
     def drain_events(self, max_items: int = 500) -> list[dict[str, Any]]:
         events: list[dict[str, Any]] = []
@@ -309,8 +354,12 @@ class DesktopTrainingController:
     def wait(self, timeout: float | None = None) -> int:
         if self.process is None:
             raise RuntimeError("No desktop training process has been started")
-        returncode = self.process.wait(timeout=timeout)
-        self._record_process_exit(returncode)
+        process = self.process
+        run_dir = self.run_dir
+        if run_dir is None:
+            raise RuntimeError("No desktop training run directory is available")
+        returncode = process.wait(timeout=timeout)
+        self._record_process_exit(process, run_dir, returncode)
         return returncode
 
     def stop_and_wait(self, timeout: float = 10.0) -> int:

@@ -472,6 +472,36 @@ Full Pytest: 40 passed
 
 Checkpoint commit: `51980d20cb9dfa2d78144705ac5b33efe47dcd85`.
 
+### Goal: isolate reader/watcher threads between sequential runs
+
+Acceptance criterion: when a second trainer starts immediately after the first process exits, late stdout/stderr, structured events, and process-exit records from the first trainer must remain attached to the first run and never enter the second run's log or UI event queue.
+
+Observed baseline:
+
+- Reader and watcher methods dereferenced mutable `self.process`, `self.run_dir`, `self._events`, and `self._stderr` after thread creation.
+- A real two-run stress reproduction emitted 12,000 lines per worker and confirmed the first run ID appeared in the second run's `worker.log`.
+
+Implemented:
+
+- Bind each stdout reader, stderr reader, and watcher to the exact `Popen`, run directory, event queue, and stderr buffer created for that run.
+- Make log writes accept an explicit run directory rather than following the controller's current mutable run.
+- Track exit records per process object so `wait()` and watcher completion cannot duplicate or redirect an exit line.
+- Add a sequential high-output regression test that immediately starts run two after run one exits.
+
+Verification:
+
+```text
+Desktop controller tests: 7 passed
+High-output reproduction: 12,003 log lines per run
+First run ID in second log: false
+Second run ID in first log: false
+Exit records per run: exactly 1
+Full Ruff: passed
+Full Pytest: 41 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
