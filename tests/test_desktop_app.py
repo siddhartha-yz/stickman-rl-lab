@@ -62,15 +62,30 @@ def test_frame_payload_normalizes_nested_wrong_shapes() -> None:
     assert valid["frame"]["info"] == {"is_success": True}
     assert valid["frame"]["target_position"] == [8.0, 1.0]
 
-    sanitized_actions = normalize_frame_payload(
+    sanitized = normalize_frame_payload(
         {
             "training": {
                 "action": [{"bad": 1}, "0.5", float("nan"), float("inf")]
             },
-            "frame": {},
+            "frame": {
+                "body_positions": [
+                    {"bad": 1},
+                    [1.0, "2.0"],
+                    [float("nan"), 4.0],
+                    [5.0],
+                ],
+                "body_angles": [{"bad": 1}, "0.5", float("nan"), float("inf")],
+            },
         }
-    )["training"]["action"]
-    assert sanitized_actions == [0.0, 0.5, 0.0, 0.0]
+    )
+    assert sanitized["training"]["action"] == [0.0, 0.5, 0.0, 0.0]
+    assert sanitized["frame"]["body_positions"] == [
+        [0.0, 0.0],
+        [1.0, 2.0],
+        [0.0, 4.0],
+        [5.0, 0.0],
+    ]
+    assert sanitized["frame"]["body_angles"] == [0.0, 0.5, 0.0, 0.0]
 
 
 def test_metric_input_helpers_filter_invalid_records_and_values() -> None:
