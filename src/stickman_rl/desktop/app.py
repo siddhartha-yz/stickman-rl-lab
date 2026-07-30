@@ -129,6 +129,38 @@ def finite_point(value: Any, *, fill_missing: bool = False) -> list[float] | Non
     return [x, y]
 
 
+def normalize_body_geometry(value: Any) -> dict[str, dict[str, Any]]:
+    normalized: dict[str, dict[str, Any]] = {}
+    for name, raw_geometry in _json_object(value).items():
+        if not isinstance(name, str) or not name:
+            continue
+        geometry = _json_object(raw_geometry)
+        kind = geometry.get("kind")
+        if kind == "circle":
+            radius = finite_float(geometry.get("radius"))
+            offset = finite_point(geometry.get("offset"))
+            if radius is None or radius <= 0.0 or offset is None:
+                continue
+            normalized[name] = {"kind": "circle", "radius": radius, "offset": offset}
+        elif kind == "segment":
+            start = finite_point(geometry.get("a"))
+            end = finite_point(geometry.get("b"))
+            radius = finite_float(geometry.get("radius"))
+            if start is None or end is None or radius is None or radius < 0.0:
+                continue
+            normalized[name] = {"kind": "segment", "a": start, "b": end, "radius": radius}
+        elif kind == "polygon":
+            raw_vertices = _json_list(geometry.get("vertices"))
+            vertices = [finite_point(vertex) for vertex in raw_vertices]
+            if len(vertices) < 3 or any(vertex is None for vertex in vertices):
+                continue
+            normalized[name] = {
+                "kind": "polygon",
+                "vertices": [vertex for vertex in vertices if vertex is not None],
+            }
+    return normalized
+
+
 def normalize_metadata_payload(value: Any) -> dict[str, Any]:
     payload = dict(_json_object(value))
     room = dict(_json_object(payload.get("room")))
@@ -176,7 +208,7 @@ def normalize_metadata_payload(value: Any) -> dict[str, Any]:
             else:
                 names.append(f"{prefix}_{index}")
         payload[field] = names
-    payload["body_geometry"] = _json_object(payload.get("body_geometry"))
+    payload["body_geometry"] = normalize_body_geometry(payload.get("body_geometry"))
     return payload
 
 
