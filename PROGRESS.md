@@ -1050,6 +1050,40 @@ Full Pytest: 59 passed
 
 Checkpoint commit: `59c0deb70b3356e64c2fd533b3cc16093263b90b`.
 
+### Goal: keep terminal failure visible when status persistence fails
+
+Acceptance criterion: if an unexpected process exit cannot persist its failed status to `status.json`, the exit finalizer must not raise or lose the event. The current UI snapshot must continue exposing the terminal failure instead of being overwritten by the stale disk state.
+
+Observed baseline:
+
+- A temporary current run had durable `state=running` and 32 timesteps.
+- Injecting a persistent `PermissionError` for terminal status writes made `_handle_process_exit()` raise.
+- No event was queued, the process was already marked handled, and disk remained `running`, so the UI could stay logically active forever.
+
+Implemented:
+
+- Add a per-current-run in-memory terminal status fallback and clear it when a new run starts.
+- Cache existing completed/stopped/failed states observed during process finalization.
+- Treat terminal status write failures as diagnostic-only, attach the persistence error, and always publish the failed event.
+- Make `snapshot()` prefer the in-memory terminal state for the matching current run, preventing stale disk state from overwriting UI failure.
+
+Verification:
+
+```text
+Desktop controller tests: 16 passed
+Terminal write baseline: PermissionError escaped
+Baseline queued events: 0
+Failed event after fix: 1
+Event state: failed
+Snapshot state: failed
+Stale disk state retained for reproduction: running
+Persistence diagnostic recorded: true
+Full Ruff: passed
+Full Pytest: 60 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`

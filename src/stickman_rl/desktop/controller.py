@@ -199,6 +199,7 @@ class DesktopTrainingController:
         self._threads: list[threading.Thread] = []
         self._log_lock = threading.RLock()
         self._handled_exit_processes: set[int] = set()
+        self._terminal_status: tuple[Path, dict[str, Any]] | None = None
 
     @property
     def is_active(self) -> bool:
@@ -217,6 +218,7 @@ class DesktopTrainingController:
         self.run_id = run_id
         self.run_dir = run_dir
         self.process = None
+        self._terminal_status = None
         event_queue = DesktopEventBuffer()
         stderr_buffer: deque[str] = deque(maxlen=200)
         self._events = event_queue
@@ -365,6 +367,8 @@ class DesktopTrainingController:
         status_path = run_dir / "status.json"
         status = read_json_object(status_path, {}) or {}
         if status.get("state") in {"completed", "stopped", "failed"}:
+            if run_dir == self.run_dir:
+                self._terminal_status = (run_dir, status)
             return
         failure = {
             **status,
@@ -377,7 +381,17 @@ class DesktopTrainingController:
             "stderr_tail": list(stderr_buffer)[-20:],
             "updated_at": datetime.now().isoformat(timespec="seconds"),
         }
-        _atomic_json(status_path, failure)
+        try:
+            _atomic_json(status_path, failure)
+        except OSError as exc:
+            failure["status_persist_error"] = f"{type(exc).__name__}: {exc}"
+            self._append_worker_log(
+                "controller",
+                f"unable to persist terminal status: {failure['status_persist_error']}",
+                run_dir=run_dir,
+            )
+        if run_dir == self.run_dir:
+            self._terminal_status = (run_dir, failure)
         event_queue.put({"type": "status", "payload": failure})
 
     def _watch_process(
@@ -464,10 +478,14 @@ class DesktopTrainingController:
         metadata = read_json_object(self.run_dir / "metadata.json")
         if frame is not None and metadata is not None and "metadata" not in frame:
             frame = {"metadata": metadata, **frame}
+        status = read_json_object(self.run_dir / "status.json", {}) or {}
+        terminal_status = self._terminal_status
+        if terminal_status is not None and terminal_status[0] == self.run_dir:
+            status = dict(terminal_status[1])
         return {
             "run_id": self.run_id,
             "request": read_json_object(self.run_dir / "request.json", {}) or {},
-            "status": read_json_object(self.run_dir / "status.json", {}) or {},
+            "status": status,
             "metrics": read_json_object(
                 self.run_dir / "metrics.json",
                 {"episodes": [], "updates": []},
