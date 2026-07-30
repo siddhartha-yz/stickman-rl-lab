@@ -862,6 +862,36 @@ Full Pytest: 53 passed
 
 Checkpoint commit: `5db8520a0e77dfdbcd38728dfc6fd8a71ed9b6f7`.
 
+### Goal: bound in-memory training metric history
+
+Acceptance criterion: long-running training must retain only the same recent metric window that is persisted to `metrics.json`; episode and PPO-update histories must not grow without bound in memory.
+
+Observed baseline:
+
+- `episodes` and `updates` were ordinary lists.
+- Appending 20,000 entries left all 20,000 resident in memory, even though `_write_metrics()` sliced only the latest 500 for disk output.
+- Multi-hour or multi-day runs would therefore accumulate historical dictionaries indefinitely.
+
+Implemented:
+
+- Define one `METRIC_HISTORY_LIMIT = 500` constant.
+- Store episode and update histories in `deque(maxlen=500)` containers.
+- Persist the full bounded deques directly, keeping memory and disk retention semantics identical.
+- Add a 20,000-entry pressure regression that verifies both ends of the retained window.
+
+Verification:
+
+```text
+Worker reliability tests: 8 passed
+20,000-entry baseline lengths: 20,000 episodes, 20,000 updates
+After fix lengths: 500 episodes, 500 updates
+Retained episode/update range: 19,500–19,999
+Full Ruff: passed
+Full Pytest: 54 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`

@@ -83,6 +83,23 @@ def test_manual_save_failure_is_reported_without_stopping_training(tmp_path: Pat
     assert "simulated checkpoint directory lock" in payload["error"]
 
 
+def test_metric_history_is_bounded_in_memory_and_on_disk(tmp_path: Path) -> None:
+    callback = LiveTrainingCallback(run_dir=tmp_path, total_timesteps=1_000_000)
+    for index in range(20_000):
+        callback.episodes.append({"episode": index})
+        callback.updates.append({"update": index})
+
+    callback._write_metrics()
+
+    payload = json.loads((tmp_path / "metrics.json").read_text(encoding="utf-8"))
+    assert len(callback.episodes) == 500
+    assert len(callback.updates) == 500
+    assert payload["episodes"][0]["episode"] == 19_500
+    assert payload["episodes"][-1]["episode"] == 19_999
+    assert payload["updates"][0]["update"] == 19_500
+    assert payload["updates"][-1]["update"] == 19_999
+
+
 def test_run_closes_environment_when_ppo_construction_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
