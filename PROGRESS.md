@@ -772,6 +772,66 @@ Full Pytest: 51 passed
 
 Checkpoint commit: `90f18b127e827c4885b772471a2d6d80a61f88c8`.
 
+### Goal: normalize persisted run timestamps before history sorting
+
+Acceptance criterion: desktop history refresh must tolerate numeric timestamps, ISO strings, missing values, and malformed JSON values without raising during sorting. Invalid values should fall back to the run directory modification time.
+
+Observed baseline:
+
+- One run used an ISO string `updated_at`; another used an integer epoch timestamp.
+- `sorted()` compared the raw values and raised `TypeError: '<' not supported between instances of 'int' and 'str'`.
+- A single legacy or corrupted run could therefore prevent the desktop application from building its history list.
+
+Implemented:
+
+- Convert finite numeric timestamps directly to floating-point epoch values.
+- Parse ISO timestamps, including `Z` UTC suffixes, through `datetime.fromisoformat()`.
+- Fall back to the run directory mtime for unsupported, invalid, non-finite, or absent values.
+- Keep the public run summary payload unchanged while sorting with a private numeric key.
+
+Verification:
+
+```text
+Desktop app tests: 5 passed
+Mixed numeric/string baseline: TypeError
+Mixed numeric/string/invalid after fix: 3 summaries returned
+Numeric year-2100 timestamp sorted first: true
+Full Ruff: passed
+Full Pytest: 52 passed
+```
+
+Checkpoint commit: `a100b7df7fa20273ee9098ee1abba27a73ad9fee`.
+
+### Goal: reject non-object persisted run JSON safely
+
+Acceptance criterion: valid JSON with the wrong top-level shape must not crash desktop history or history-detail loading. request/status/metrics payloads must be normalized to objects before any `.get()` access.
+
+Observed baseline:
+
+- A run with list-valued `request.json` and string-valued `status.json` parsed successfully.
+- `run_summaries()` then called `.get()` on the string and raised `AttributeError`.
+- One malformed legacy run could therefore prevent the desktop interface from opening its history panel.
+
+Implemented:
+
+- Add one shared `_json_object()` boundary that accepts dictionaries and downgrades all other JSON values to `{}`.
+- Apply the same normalization in run summaries and selected-run status/metrics loading.
+- Skip unusable history details without altering other valid runs.
+
+Verification:
+
+```text
+Desktop app tests: 6 passed
+Non-object baseline: AttributeError
+Non-object after fix: 1 summary returned
+Normalized request: {}
+Normalized status: {}
+Full Ruff: passed
+Full Pytest: 53 passed
+```
+
+Checkpoint commit: `bc090b250cc9d7c597fa9e9a35ea9fd3aba9115b`.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`

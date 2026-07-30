@@ -8,6 +8,7 @@ import time
 import tkinter as tk
 from collections import deque
 from contextlib import suppress
+from datetime import datetime
 from pathlib import Path
 from tkinter import messagebox, ttk
 from typing import Any
@@ -73,24 +74,48 @@ def format_percent(value: Any) -> str:
     return f"{float(value) * 100:.1f}%"
 
 
+def _json_object(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _history_timestamp(value: Any, fallback: float) -> float:
+    if isinstance(value, int | float) and not isinstance(value, bool):
+        numeric = float(value)
+        return numeric if math.isfinite(numeric) else fallback
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+        except (OSError, OverflowError, ValueError):
+            return fallback
+    return fallback
+
+
 def run_summaries(runs_root: Path) -> list[dict[str, Any]]:
     if not runs_root.exists():
         return []
-    items: list[dict[str, Any]] = []
+    items: list[tuple[float, dict[str, Any]]] = []
     for run_dir in runs_root.iterdir():
         if not run_dir.is_dir():
             continue
-        request = read_json_file(run_dir / "request.json", {})
-        status = read_json_file(run_dir / "status.json", {})
+        request = _json_object(read_json_file(run_dir / "request.json", {}))
+        status = _json_object(read_json_file(run_dir / "status.json", {}))
+        updated_at = status.get("updated_at") or request.get("created_at") or ""
+        try:
+            fallback = run_dir.stat().st_mtime
+        except OSError:
+            fallback = 0.0
         items.append(
-            {
-                "run_id": run_dir.name,
-                "request": request,
-                "status": status,
-                "updated_at": status.get("updated_at") or request.get("created_at") or "",
-            }
+            (
+                _history_timestamp(updated_at, fallback),
+                {
+                    "run_id": run_dir.name,
+                    "request": request,
+                    "status": status,
+                    "updated_at": updated_at,
+                },
+            )
         )
-    return sorted(items, key=lambda item: item["updated_at"], reverse=True)
+    return [item for _, item in sorted(items, key=lambda entry: entry[0], reverse=True)]
 
 
 class Sparkline(tk.Canvas):
@@ -678,9 +703,9 @@ class DesktopLabApp:
         if item["run_id"] == self.controller.run_id:
             return
         run_dir = self.controller.runs_root / item["run_id"]
-        status = read_json_file(run_dir / "status.json")
-        metrics = read_json_file(run_dir / "metrics.json")
-        if status is None or metrics is None:
+        status = _json_object(read_json_file(run_dir / "status.json"))
+        metrics = _json_object(read_json_file(run_dir / "metrics.json"))
+        if not status or not metrics:
             return
         self.status = status
         self.metrics = metrics
