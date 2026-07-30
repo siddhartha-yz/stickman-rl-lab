@@ -1681,6 +1681,105 @@ Full Pytest: 84 passed
 
 Checkpoint commit: `57a0405359650a2c777d11d6c8e8c2f38465baf5`.
 
+
+### Goal: tolerate malformed episode info without stopping PPO
+
+Acceptance criterion: non-object `infos[0]`, non-object `info["episode"]`, and invalid episode reward/length/distance values must not raise from `_on_step()`. The callback must continue training and record finite fallback metrics.
+
+Observed baseline:
+
+- A completed episode with `info["episode"] = None` raised `AttributeError` at `episode_info.get(...)`.
+- A non-object info row could also fail while converting `infos[0]` to a dictionary.
+- One malformed wrapper payload could therefore terminate an otherwise valid PPO run at episode completion.
+
+Implemented:
+
+- Accept only list/tuple info containers and object-valued first entries.
+- Accept only object-valued episode summaries.
+- Add finite-float and nonnegative-integer conversion boundaries.
+- Fall back to the callback's accumulated episode reward, current episode step, and distance `0.0`.
+- Preserve normal Monitor output unchanged.
+
+Verification:
+
+```text
+Worker tests: 17 passed
+Malformed episode baseline: AttributeError
+Callback continued after fix: true
+Recorded reward: 1.0
+Recorded length: 1
+Recorded final distance: 0.0
+Full Ruff: passed
+Full Pytest: 86 passed
+```
+
+Checkpoint commit: `2ee746b4272b32d7d9fdb78456b6ae8404648b0b`.
+
+
+### Goal: tolerate malformed rollout reward and done vectors
+
+Acceptance criterion: non-numeric reward entries and non-sequence or invalid done containers must not raise from `_on_step()`. Invalid rewards must fall back to `0.0`, invalid done values to `False`, and no false completed episode may be recorded.
+
+Observed baseline:
+
+- A reward vector containing an object raised `TypeError` during NumPy float conversion.
+- An object-valued dones container became a zero-dimensional array and raised `IndexError` when indexed.
+- Either malformed wrapper output could terminate the PPO callback before control handling.
+
+Implemented:
+
+- Read only the first item from list, tuple, or ndarray vector containers.
+- Reject non-sequence containers instead of coercing them through NumPy.
+- Convert reward values through the finite-float boundary.
+- Convert done values only from finite numeric or boolean inputs.
+- Fall back to reward `0.0` and done `False` for invalid values.
+
+Verification:
+
+```text
+Worker tests: 19 passed
+Object reward baseline: TypeError
+Object dones baseline: IndexError
+Bad reward after fix: callback continued, reward 0.0
+Bad dones after fix: callback continued, no episode recorded
+Full Ruff: passed
+Full Pytest: 88 passed
+```
+
+Checkpoint commit: `4fdb7eca30835c3c7564c8381d6de4c354fdf92b`.
+
+
+### Goal: ignore malformed non-scalar logger metrics
+
+Acceptance criterion: multi-element arrays, objects, and non-finite values in the SB3 logger must not raise from `_logger_metrics()` or terminate rollout-end processing. Valid scalar and one-element numeric array values must remain available.
+
+Observed baseline:
+
+- A two-element NumPy logger value raised `ValueError` because its finite mask was used as a boolean.
+- An object-valued logger entry raised `TypeError` inside `np.isfinite`.
+- One custom or damaged logger value could therefore terminate the callback at rollout end.
+
+Implemented:
+
+- Add one optional finite scalar conversion boundary.
+- Accept one-element ndarrays and normal numeric scalar values.
+- Reject multi-element arrays, objects, and non-finite values as `None`.
+- Apply the same conversion to every recorded PPO logger metric.
+
+Verification:
+
+```text
+Worker tests: 20 passed
+Array logger baseline: ValueError
+Object logger baseline: TypeError
+One-element array after fix: 1.25
+Multi-element/object/infinite after fix: None
+Full Ruff: passed
+Full Pytest: 89 passed
+```
+
+Checkpoint commit: `969d15f88b337644b1bd873eb8f9d784e3e97d93`.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`

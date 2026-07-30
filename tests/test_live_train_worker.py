@@ -26,6 +26,29 @@ def test_emit_stdout_event_returns_false_for_broken_pipe(
     assert not emit_stdout_event("status", {"state": "running"}, enabled=True)
 
 
+def test_logger_metrics_ignore_non_scalar_and_invalid_values(tmp_path: Path) -> None:
+    class FakeLogger:
+        name_to_value = {
+            "train/policy_gradient_loss": worker_module.np.array([1.25]),
+            "train/value_loss": worker_module.np.array([1.0, 2.0]),
+            "train/entropy_loss": {"bad": 1},
+            "train/approx_kl": float("inf"),
+        }
+
+    class FakeModel:
+        logger = FakeLogger()
+
+    callback = LiveTrainingCallback(run_dir=tmp_path, total_timesteps=64)
+    callback.model = FakeModel()  # type: ignore[assignment]
+
+    metrics = callback._logger_metrics()
+
+    assert metrics["policy_loss"] == 1.25
+    assert metrics["value_loss"] is None
+    assert metrics["entropy_loss"] is None
+    assert metrics["approx_kl"] is None
+
+
 def test_callback_disables_stdout_after_emit_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -280,6 +303,69 @@ def test_status_snapshot_write_failure_emits_live_state_and_recovers(
     assert callback.status_snapshot_retry_after == 0.0
     assert emitted[-1][0] == "status"
     assert emitted[-1][1]["status_snapshot_error"] is None  # type: ignore[index]
+
+
+@pytest.mark.parametrize(
+    ("rewards", "dones", "expected_reward"),
+    [
+        ([{"bad": 1}], [False], 0.0),
+        ([1.0], {"bad": 1}, 1.0),
+    ],
+)
+def test_on_step_tolerates_malformed_reward_and_done_vectors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    rewards: object,
+    dones: object,
+    expected_reward: float,
+) -> None:
+    callback = LiveTrainingCallback(run_dir=tmp_path, total_timesteps=64)
+    callback.num_timesteps = 1
+    callback.locals = {"rewards": rewards, "infos": [{}], "dones": dones}
+    monkeypatch.setattr(callback, "_write_metrics", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(callback, "_write_frame", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(callback, "_write_status", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(callback, "_handle_control", lambda: True)
+
+    assert callback._on_step()
+
+    assert callback.current_episode_reward == expected_reward
+    assert callback.episode_step == 1
+    assert not callback.episodes
+
+
+@pytest.mark.parametrize(
+    "info_value",
+    [
+        {"episode": None, "is_success": False, "final_distance": None},
+        "legacy-info-row",
+    ],
+)
+def test_on_step_tolerates_malformed_episode_info(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    info_value: object,
+) -> None:
+    callback = LiveTrainingCallback(run_dir=tmp_path, total_timesteps=64)
+    callback.num_timesteps = 1
+    callback.locals = {
+        "rewards": [1.0],
+        "infos": [info_value],
+        "dones": [True],
+    }
+    monkeypatch.setattr(callback, "_write_metrics", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(callback, "_write_frame", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(callback, "_write_status", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(callback, "_handle_control", lambda: True)
+
+    assert callback._on_step()
+
+    assert len(callback.episodes) == 1
+    episode = callback.episodes[0]
+    assert episode["reward"] == 1.0
+    assert episode["length"] == 1
+    assert episode["success"] is False
+    assert episode["final_distance"] == 0.0
 
 
 def test_control_read_retries_transient_permission_error(
