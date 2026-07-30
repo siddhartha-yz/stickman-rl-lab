@@ -110,7 +110,11 @@ def _json_list(value: Any) -> list[Any]:
 def normalize_frame_payload(value: Any) -> dict[str, Any]:
     payload = dict(_json_object(value))
     training = dict(_json_object(payload.get("training")))
-    training["action"] = _json_list(training.get("action"))
+    actions: list[float] = []
+    for value in _json_list(training.get("action")):
+        parsed = finite_float(value)
+        actions.append(parsed if parsed is not None else 0.0)
+    training["action"] = actions
     frame = dict(_json_object(payload.get("frame")))
     frame["info"] = _json_object(frame.get("info"))
     frame["body_positions"] = _json_list(frame.get("body_positions"))
@@ -657,8 +661,9 @@ class DesktopLabApp:
             if self.frame is None and snapshot_frame:
                 compact = dict(snapshot_frame)
                 compact.pop("metadata", None)
-                self.frame = compact
-                self.physics.set_frame(compact)
+                normalized = normalize_frame_payload(compact)
+                self.frame = normalized
+                self.physics.set_frame(normalized)
         self._refresh_ui()
         self._maybe_finish_smoke()
         self.root.after(16, self._tick)
