@@ -465,6 +465,31 @@ Internal stream: connected, 161 messages sent, one initial connection, no error
 
 The source rate varies during PPO gradient updates because the environment does not advance while the policy optimizer is running. Browser rendering continues at the display refresh cadence by interpolating only between actual trainer states; it does not invent episode outcomes or alter physics.
 
+## Desktop application migration (2026-07-30)
+
+### Goal 1: native trainer transport and process controller
+
+Acceptance criterion: a non-web Python controller must launch a randomly initialized PPO worker, receive structured metadata/frame/status/metrics events through the worker's standard output, complete a real 64-step smoke run, and save a reloadable final checkpoint without FastAPI or a browser.
+
+Implemented:
+
+- `scripts/live_train_worker.py` supports `--stream-stdout` line-delimited events and an explicit `--run-dir`.
+- `stickman_rl.desktop.DesktopTrainingController` launches, observes, pauses, resumes, saves, stops, and snapshots one trainer directly.
+- Configuration validation prevents environment YAML files from being used as PPO training configs.
+- The web transport remains temporarily available until the native UI is independently verified.
+
+Verification:
+
+```text
+Desktop controller Ruff: passed
+Desktop controller tests: 2 passed
+Real PPO smoke: 64/64 steps, process exit 0
+Received event types: metadata, frame, status, metrics
+Final checkpoint: created
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`

@@ -22,6 +22,18 @@ from websockets.sync.client import connect
 from stickman_rl.config import PROJECT_ROOT, load_env_config, load_train_config
 from stickman_rl.env import StickmanReachEnv
 
+EVENT_PREFIX = "STICKMAN_EVENT\t"
+
+
+def emit_stdout_event(event_type: str, payload: Any, *, enabled: bool) -> None:
+    if not enabled:
+        return
+    event = {"type": event_type, "payload": json_safe(payload)}
+    print(
+        f"{EVENT_PREFIX}{json.dumps(event, ensure_ascii=False, separators=(',', ':'))}",
+        flush=True,
+    )
+
 
 def replace_with_retry(temporary: Path, destination: Path) -> None:
     for attempt in range(20):
@@ -82,6 +94,7 @@ class LiveTrainingCallback(BaseCallback):
         run_dir: Path,
         total_timesteps: int,
         stream_url: str | None = None,
+        stream_stdout: bool = False,
         verbose: int = 0,
     ) -> None:
         super().__init__(verbose=verbose)
@@ -93,6 +106,7 @@ class LiveTrainingCallback(BaseCallback):
         self.metadata_path = run_dir / "metadata.json"
         self.metrics_path = run_dir / "metrics.json"
         self.stream_url = stream_url
+        self.stream_stdout = stream_stdout
         self.stream_socket: Any | None = None
         self.next_stream_retry = 0.0
         self.stream_messages_sent = 0
@@ -173,17 +187,18 @@ class LiveTrainingCallback(BaseCallback):
         }
 
     def _write_status(self, state: str | None = None) -> None:
-        atomic_json(self.status_path, self._status_payload(state))
+        payload = self._status_payload(state)
+        atomic_json(self.status_path, payload)
+        emit_stdout_event("status", payload, enabled=self.stream_stdout)
         self.last_status_write = time.monotonic()
 
     def _write_metrics(self) -> None:
-        atomic_json(
-            self.metrics_path,
-            {
-                "episodes": self.episodes[-500:],
-                "updates": self.updates[-500:],
-            },
-        )
+        payload = {
+            "episodes": self.episodes[-500:],
+            "updates": self.updates[-500:],
+        }
+        atomic_json(self.metrics_path, payload)
+        emit_stdout_event("metrics", payload, enabled=self.stream_stdout)
 
     def _write_frame(self, force_disk: bool = False) -> None:
         needs_metadata = not self.metadata_path.exists()
@@ -191,7 +206,9 @@ class LiveTrainingCallback(BaseCallback):
             "live_snapshot", include_metadata=needs_metadata
         )[0]
         if needs_metadata:
-            atomic_json(self.metadata_path, json_safe(snapshot.pop("metadata")))
+            metadata = json_safe(snapshot.pop("metadata"))
+            atomic_json(self.metadata_path, metadata)
+            emit_stdout_event("metadata", metadata, enabled=self.stream_stdout)
         actions = np.asarray(self.locals.get("actions", np.zeros((1, 8), dtype=np.float32)))
         action = actions[0].astype(float).tolist() if actions.ndim > 1 else actions.astype(float).tolist()
         payload = json_safe(
@@ -208,6 +225,7 @@ class LiveTrainingCallback(BaseCallback):
             }
         )
         self._send_stream_frame(payload)
+        emit_stdout_event("frame", payload, enabled=self.stream_stdout)
         now = time.monotonic()
         if force_disk or now - self.last_disk_frame_write >= 0.2:
             atomic_json_compact(self.frame_path, payload)
@@ -254,15 +272,14 @@ class LiveTrainingCallback(BaseCallback):
         save_dir.mkdir(parents=True, exist_ok=True)
         save_path = save_dir / f"manual-{self.num_timesteps}"
         self.model.save(str(save_path))
-        atomic_json(
-            self.run_dir / "last_save.json",
-            {
-                "request_id": request_id,
-                "num_timesteps": int(self.num_timesteps),
-                "path": str(save_path.with_suffix(".zip")),
-                "saved_at": datetime.now().isoformat(timespec="seconds"),
-            },
-        )
+        save_payload = {
+            "request_id": request_id,
+            "num_timesteps": int(self.num_timesteps),
+            "path": str(save_path.with_suffix(".zip")),
+            "saved_at": datetime.now().isoformat(timespec="seconds"),
+        }
+        atomic_json(self.run_dir / "last_save.json", save_payload)
+        emit_stdout_event("checkpoint", save_payload, enabled=self.stream_stdout)
 
     def _handle_control(self) -> bool:
         control = self._control()
@@ -357,7 +374,7 @@ class LiveTrainingCallback(BaseCallback):
 
 
 def run(args: argparse.Namespace) -> None:
-    run_dir = PROJECT_ROOT / "lab" / "runs" / args.run_id
+    run_dir = Path(args.run_dir).resolve() if args.run_dir else PROJECT_ROOT / "lab" / "runs" / args.run_id
     run_dir.mkdir(parents=True, exist_ok=True)
     status_path = run_dir / "status.json"
     request = {
@@ -406,6 +423,7 @@ def run(args: argparse.Namespace) -> None:
         run_dir=run_dir,
         total_timesteps=args.timesteps,
         stream_url=args.stream_url,
+        stream_stdout=args.stream_stdout,
     )
     checkpoint_callback = CheckpointCallback(
         save_freq=max(1, int(train_cfg.get("checkpoint_freq", 5000))),
@@ -427,6 +445,7 @@ def run(args: argparse.Namespace) -> None:
         )
         final_status["final_checkpoint"] = str(final_path.with_suffix(".zip"))
         atomic_json(status_path, final_status)
+        emit_stdout_event("status", final_status, enabled=args.stream_stdout)
     finally:
         env.close()
 
@@ -440,22 +459,23 @@ def main() -> None:
     parser.add_argument("--train-config", type=str, default=None)
     parser.add_argument("--env-config", type=str, default=None)
     parser.add_argument("--stream-url", type=str, default=None)
+    parser.add_argument("--stream-stdout", action="store_true")
+    parser.add_argument("--run-dir", type=str, default=None)
     args = parser.parse_args()
-    run_dir = PROJECT_ROOT / "lab" / "runs" / args.run_id
+    run_dir = Path(args.run_dir).resolve() if args.run_dir else PROJECT_ROOT / "lab" / "runs" / args.run_id
     try:
         run(args)
     except Exception as exc:  # noqa: BLE001 - worker must persist failures for the UI
-        atomic_json(
-            run_dir / "status.json",
-            {
-                "state": "failed",
-                "error": str(exc),
-                "traceback": traceback.format_exc(),
-                "updated_at": datetime.now().isoformat(timespec="seconds"),
-                "pid": os.getpid(),
-                "num_timesteps": 0,
-            },
-        )
+        failure_payload = {
+            "state": "failed",
+            "error": str(exc),
+            "traceback": traceback.format_exc(),
+            "updated_at": datetime.now().isoformat(timespec="seconds"),
+            "pid": os.getpid(),
+            "num_timesteps": 0,
+        }
+        atomic_json(run_dir / "status.json", failure_payload)
+        emit_stdout_event("status", failure_payload, enabled=args.stream_stdout)
         raise
 
 
