@@ -107,6 +107,17 @@ def _json_list(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
 
 
+def finite_point(value: Any, *, fill_missing: bool = False) -> list[float] | None:
+    coordinates = value if isinstance(value, list) else []
+    x = finite_float(coordinates[0]) if len(coordinates) >= 1 else None
+    y = finite_float(coordinates[1]) if len(coordinates) >= 2 else None
+    if fill_missing:
+        return [x if x is not None else 0.0, y if y is not None else 0.0]
+    if x is None or y is None:
+        return None
+    return [x, y]
+
+
 def normalize_frame_payload(value: Any) -> dict[str, Any]:
     payload = dict(_json_object(value))
     training = dict(_json_object(payload.get("training")))
@@ -119,16 +130,19 @@ def normalize_frame_payload(value: Any) -> dict[str, Any]:
     frame["info"] = _json_object(frame.get("info"))
     positions: list[list[float]] = []
     for value in _json_list(frame.get("body_positions")):
-        coordinates = value if isinstance(value, list) else []
-        x = finite_float(coordinates[0]) if len(coordinates) >= 1 else None
-        y = finite_float(coordinates[1]) if len(coordinates) >= 2 else None
-        positions.append([x if x is not None else 0.0, y if y is not None else 0.0])
+        positions.append(finite_point(value, fill_missing=True) or [0.0, 0.0])
     frame["body_positions"] = positions
     angles: list[float] = []
     for value in _json_list(frame.get("body_angles")):
         parsed = finite_float(value)
         angles.append(parsed if parsed is not None else 0.0)
     frame["body_angles"] = angles
+    if "target_position" in frame:
+        target_position = finite_point(frame.get("target_position"))
+        if target_position is None:
+            frame.pop("target_position", None)
+        else:
+            frame["target_position"] = target_position
     payload["training"] = training
     payload["frame"] = frame
     return payload

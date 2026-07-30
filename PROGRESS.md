@@ -1180,6 +1180,37 @@ Full Pytest: 61 passed
 
 Checkpoint commit: `61575e2a0ffaf97a04d76c48b34eb110fb562fa1`.
 
+### Goal: fall back safely from malformed dynamic target coordinates
+
+Acceptance criterion: malformed, short, or non-finite dynamic `target_position` values must not raise from physics redraw. Invalid dynamic coordinates should be removed so the renderer uses the known static target, while valid convertible coordinates remain available.
+
+Observed baseline:
+
+- A real `PhysicsCanvas.redraw()` call with object-valued `target_position` raised `KeyError: 0` during coordinate transformation.
+- The body-position parser contained similar finite two-dimensional conversion logic, creating two fragile coordinate paths.
+
+Implemented:
+
+- Add one reusable `finite_point()` conversion boundary.
+- Reuse it for body-position parsing, retaining partial body-coordinate recovery through explicit zero fill.
+- Require both dynamic target coordinates to be finite; remove invalid values to activate the existing static-target fallback.
+- Preserve valid numeric and convertible string target coordinates.
+
+Verification:
+
+```text
+Desktop app tests: 10 passed
+Object-valued dynamic target baseline: KeyError 0
+Invalid dynamic target retained after fix: false
+Static fallback target: [8.0, 1.0]
+Real PhysicsCanvas.redraw after fix: completed
+Valid string/numeric target conversion: verified
+Full Ruff: passed
+Full Pytest: 62 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
