@@ -83,6 +83,17 @@ class DesktopEventBuffer:
             return len(self._latest) + len(self._pending)
 
 
+def _write_text_with_retry(path: Path, text: str) -> None:
+    for attempt in range(20):
+        try:
+            path.write_text(text, encoding="utf-8")
+            return
+        except PermissionError:
+            if attempt == 19:
+                raise
+            time.sleep(0.005)
+
+
 def _replace_with_retry(temporary: Path, destination: Path) -> None:
     for attempt in range(20):
         try:
@@ -97,7 +108,10 @@ def _replace_with_retry(temporary: Path, destination: Path) -> None:
 def _atomic_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    _write_text_with_retry(
+        temporary,
+        json.dumps(payload, ensure_ascii=False, indent=2),
+    )
     _replace_with_retry(temporary, path)
 
 

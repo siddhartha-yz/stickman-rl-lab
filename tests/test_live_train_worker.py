@@ -16,6 +16,29 @@ from scripts.live_train_worker import (
 )
 
 
+def test_atomic_json_retries_transient_temporary_write_lock(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    destination = tmp_path / "status.json"
+    original_write_text = Path.write_text
+    locked_attempts = 0
+
+    def flaky_write_text(path: Path, *args: object, **kwargs: object) -> int:
+        nonlocal locked_attempts
+        if path.name == "status.json.tmp" and locked_attempts < 2:
+            locked_attempts += 1
+            raise PermissionError("simulated temporary file lock")
+        return original_write_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", flaky_write_text)
+
+    worker_module.atomic_json(destination, {"state": "running"})
+
+    assert locked_attempts == 2
+    assert json.loads(destination.read_text(encoding="utf-8")) == {"state": "running"}
+
+
 def test_json_safe_sanitizes_numpy_nonfinite_values() -> None:
     assert json_safe(worker_module.np.float32(worker_module.np.inf)) is None
     assert json_safe(

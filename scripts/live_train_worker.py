@@ -37,6 +37,17 @@ def emit_stdout_event(event_type: str, payload: Any, *, enabled: bool) -> bool:
     return True
 
 
+def write_text_with_retry(path: Path, text: str) -> None:
+    for attempt in range(20):
+        try:
+            path.write_text(text, encoding="utf-8")
+            return
+        except PermissionError:
+            if attempt == 19:
+                raise
+            time.sleep(0.005)
+
+
 def replace_with_retry(temporary: Path, destination: Path) -> None:
     for attempt in range(20):
         try:
@@ -51,16 +62,19 @@ def replace_with_retry(temporary: Path, destination: Path) -> None:
 def atomic_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_text_with_retry(
+        temporary,
+        json.dumps(payload, ensure_ascii=False, indent=2),
+    )
     replace_with_retry(temporary, path)
 
 
 def atomic_json_compact(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(
+    write_text_with_retry(
+        temporary,
         json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
-        encoding="utf-8",
     )
     replace_with_retry(temporary, path)
 
