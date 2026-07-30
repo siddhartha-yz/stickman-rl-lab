@@ -108,6 +108,16 @@ def read_json_file(path: Path, default: Any = None) -> Any:
     return default
 
 
+def read_json_object(
+    path: Path,
+    default: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    value = read_json_file(path, default)
+    if isinstance(value, dict):
+        return value
+    return dict(default) if default is not None else None
+
+
 def _validated_config(value: str | None, *, training: bool) -> str | None:
     if value is None or not value.strip():
         return None
@@ -353,7 +363,7 @@ class DesktopTrainingController:
             run_dir=run_dir,
         )
         status_path = run_dir / "status.json"
-        status = read_json_file(status_path, {})
+        status = read_json_object(status_path, {}) or {}
         if status.get("state") in {"completed", "stopped", "failed"}:
             return
         failure = {
@@ -425,11 +435,14 @@ class DesktopTrainingController:
     def control(self, action: ControlAction) -> dict[str, Any]:
         if self.run_dir is None:
             raise RuntimeError("No desktop training run has been started")
-        status = read_json_file(self.run_dir / "status.json", {})
+        status = read_json_object(self.run_dir / "status.json", {}) or {}
         if status.get("state") not in ACTIVE_STATES:
             raise RuntimeError(f"Run is already {status.get('state', 'inactive')}")
         control_path = self.run_dir / "control.json"
-        control = read_json_file(control_path, {"paused": False, "stop": False, "save_request": None})
+        control = read_json_object(
+            control_path,
+            {"paused": False, "stop": False, "save_request": None},
+        ) or {"paused": False, "stop": False, "save_request": None}
         if action == "pause":
             control["paused"] = True
         elif action == "resume":
@@ -447,17 +460,21 @@ class DesktopTrainingController:
     def snapshot(self) -> dict[str, Any]:
         if self.run_dir is None:
             return {}
-        frame = read_json_file(self.run_dir / "frame.json")
-        metadata = read_json_file(self.run_dir / "metadata.json")
+        frame = read_json_object(self.run_dir / "frame.json")
+        metadata = read_json_object(self.run_dir / "metadata.json")
         if frame is not None and metadata is not None and "metadata" not in frame:
             frame = {"metadata": metadata, **frame}
         return {
             "run_id": self.run_id,
-            "request": read_json_file(self.run_dir / "request.json", {}),
-            "status": read_json_file(self.run_dir / "status.json", {}),
-            "metrics": read_json_file(self.run_dir / "metrics.json", {"episodes": [], "updates": []}),
+            "request": read_json_object(self.run_dir / "request.json", {}) or {},
+            "status": read_json_object(self.run_dir / "status.json", {}) or {},
+            "metrics": read_json_object(
+                self.run_dir / "metrics.json",
+                {"episodes": [], "updates": []},
+            )
+            or {"episodes": [], "updates": []},
             "frame": frame,
-            "last_save": read_json_file(self.run_dir / "last_save.json"),
+            "last_save": read_json_object(self.run_dir / "last_save.json"),
             "stderr": list(self._stderr),
         }
 

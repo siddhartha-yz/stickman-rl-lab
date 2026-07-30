@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 import time
 from pathlib import Path
@@ -112,6 +113,42 @@ def test_desktop_controller_pause_save_resume_and_stop(tmp_path: Path) -> None:
     stopped = controller.snapshot()["status"]
     assert stopped["state"] == "stopped"
     assert Path(stopped["final_checkpoint"]).is_file()
+
+
+def test_controller_normalizes_non_object_persisted_json(tmp_path: Path) -> None:
+    run_dir = tmp_path / "desktop-broken"
+    run_dir.mkdir()
+    for filename, payload in {
+        "request.json": [],
+        "status.json": "running",
+        "metrics.json": "bad-metrics",
+        "frame.json": [],
+        "metadata.json": "bad-metadata",
+        "last_save.json": 7,
+        "control.json": [],
+    }.items():
+        (run_dir / filename).write_text(json.dumps(payload), encoding="utf-8")
+
+    controller = DesktopTrainingController(runs_root=tmp_path)
+    controller.run_id = run_dir.name
+    controller.run_dir = run_dir
+
+    snapshot = controller.snapshot()
+    assert snapshot["request"] == {}
+    assert snapshot["status"] == {}
+    assert snapshot["metrics"] == {"episodes": [], "updates": []}
+    assert snapshot["frame"] is None
+    assert snapshot["last_save"] is None
+    with pytest.raises(RuntimeError, match="already inactive"):
+        controller.control("pause")
+
+    (run_dir / "status.json").write_text(
+        json.dumps({"state": "running"}),
+        encoding="utf-8",
+    )
+    control = controller.control("pause")
+    assert control == {"paused": True, "stop": False, "save_request": None}
+    assert json.loads((run_dir / "control.json").read_text(encoding="utf-8")) == control
 
 
 def test_read_json_retries_transient_permission_error(
