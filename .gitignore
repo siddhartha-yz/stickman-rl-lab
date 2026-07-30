@@ -45,6 +45,20 @@ videos/**
 lab/runs/**
 !lab/runs/.gitkeep
 
+# Curated report evidence: keep only durable, README/PROGRESS-linked artifacts
+reports/**
+!reports/agent-medium-lidar-seed17-comparison.json
+!reports/distill-full-16.json
+!reports/stage1-repeat4-reward.png
+!reports/stage1-repeat4-success.png
+!reports/stage3-full-breakthrough.json
+!reports/stage3-full-recommended-detailed-seed1000.json
+!reports/stage3-full-recommended-detailed-seed5000.json
+!reports/lab-observer-home.png
+!reports/lab-observer-mobile.png
+!reports/live-training-console.png
+!reports/live-training-direct-stream.png
+
 # TensorBoard, runtime, temporary, and generated binary data
 events.out.tfevents.*
 *.npz
