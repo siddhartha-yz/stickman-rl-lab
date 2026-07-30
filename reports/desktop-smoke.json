@@ -1,0 +1,8 @@
+{
+  "state": "completed",
+  "num_timesteps": 64,
+  "frames_received": 8,
+  "body_count": 10,
+  "process_exit_code": 0,
+  "screenshot_saved": true
+}

@@ -21,11 +21,22 @@ ACTIVE_STATES = {"starting", "running", "paused", "saving", "stopping"}
 ControlAction = Literal["pause", "resume", "stop", "save"]
 
 
+def _replace_with_retry(temporary: Path, destination: Path) -> None:
+    for attempt in range(20):
+        try:
+            temporary.replace(destination)
+            return
+        except PermissionError:
+            if attempt == 19:
+                raise
+            time.sleep(0.005)
+
+
 def _atomic_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    temporary.replace(path)
+    _replace_with_retry(temporary, path)
 
 
 def _read_json(path: Path, default: Any = None) -> Any:

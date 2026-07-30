@@ -488,6 +488,40 @@ Received event types: metadata, frame, status, metrics
 Final checkpoint: created
 ```
 
+Checkpoint commit: `f33c8411f89b04ca83dc669c0e37b971b172de29`.
+
+### Goal 2: native desktop training console
+
+Acceptance criterion: a Windows-native window must launch a random-weight PPO run, render the current ten-body PyMunk state without a browser, show live training metrics and action outputs, and expose pause, resume, save, and stop controls.
+
+Implemented:
+
+- `stickman_rl.desktop.app` provides a DPI-aware Tk desktop window with stage/config controls, run history, live rigid-body Canvas rendering, progress/metric tiles, PPO charts, action inspection, and process state.
+- `scripts/run_desktop.py` is the direct launcher and includes a reproducible `--smoke` mode.
+- The worker-to-desktop path is a structured stdout pipe; no FastAPI server or localhost WebSocket is required.
+- Window closing explicitly stops and saves an active child trainer rather than leaving a broken stdout pipe.
+- Windows DPI awareness and explicit layout constraints prevent the native window and physics room from being clipped by display scaling.
+- Desktop control JSON writes retry brief Windows sharing-lock conflicts, verified after a real `WinError 5` failure was reproduced by the full suite.
+
+Verification:
+
+```text
+Desktop UI/helper tests: 3 passed
+Desktop controller lifecycle tests: 3 passed
+Pause: timesteps remained unchanged for 0.4 seconds
+Manual save while paused: checkpoint created
+Resume: timesteps advanced
+Stop: process exit 0 and stopped_model.zip created
+Native UI smoke: completed, 64/64 steps
+Live frames received: 8
+Rigid bodies in frame metadata: 10
+Desktop child process exit: 0
+Full Ruff: passed
+Full Pytest: 35 passed
+Screenshot: reports/desktop-training-console.png
+Machine-readable report: reports/desktop-smoke.json
+```
+
 Checkpoint commit: pending `goal_checkpoint.ps1` result.
 
 ## Generated artifacts

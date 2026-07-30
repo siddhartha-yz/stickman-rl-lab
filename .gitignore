@@ -58,6 +58,8 @@ reports/**
 !reports/lab-observer-mobile.png
 !reports/live-training-console.png
 !reports/live-training-direct-stream.png
+!reports/desktop-smoke.json
+!reports/desktop-training-console.png
 
 # TensorBoard, runtime, temporary, and generated binary data
 events.out.tfevents.*

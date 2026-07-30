@@ -54,11 +54,31 @@ C:\rlv\Scripts\python.exe -m pip install -e .
 mklink /J .venv C:\rlv
 ```
 
-## Live training console
+## Native desktop training console
 
-The browser interface is a real training control plane, not a prerecorded demo. Creating a session starts a separate Python process, initializes a new Stable-Baselines3 PPO policy from random weights, and trains it inside the PyMunk environment. Dynamic physics frames travel directly from the trainer to the FastAPI process over a localhost WebSocket and are pushed to the browser; low-frequency JSON snapshots remain only as a recovery fallback.
+The preferred interface is now a native Tk desktop application. It launches the PPO worker directly, consumes structured physics/status/metric events through a local standard-output pipe, and does not require a browser, FastAPI, Vite, or a localhost HTTP port.
 
-Build and launch the interface:
+Launch it with:
+
+```bat
+C:\rlv\Scripts\python.exe scripts\run_desktop.py
+```
+
+The desktop console can start a new random-weight PPO run, render the current ten-body PyMunk state, display live reward/success/distance/loss metrics, inspect joint actions, browse local run records, and pause, resume, save, or stop the trainer. Runs remain reproducible under `lab/runs/<run-id>/` with request, control, status, metrics, snapshots, TensorBoard data, and checkpoints.
+
+A real native-window smoke test is available:
+
+```bat
+C:\rlv\Scripts\python.exe scripts\run_desktop.py --smoke
+```
+
+It performs a 64-step PPO run, captures `reports/desktop-training-console.png`, writes `reports/desktop-smoke.json`, and exits. The verified smoke completed 64/64 steps, received live frames containing all ten rigid bodies, and exited with code 0.
+
+## Legacy web training console (temporary during migration)
+
+The browser interface remains available only until the native migration is independently committed and the web-specific files are removed. It is a real training control plane, not a prerecorded demo. Creating a session starts a separate Python process, initializes a new Stable-Baselines3 PPO policy from random weights, and trains it inside the PyMunk environment. Dynamic physics frames travel directly from the trainer to the FastAPI process over a localhost WebSocket and are pushed to the browser; low-frequency JSON snapshots remain only as a recovery fallback.
+
+Build and launch the legacy interface:
 
 ```bat
 C:\rlv\Scripts\python.exe -m pip install -r requirements.txt
