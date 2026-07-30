@@ -1116,6 +1116,38 @@ Full Pytest: 61 passed
 
 Checkpoint commit: `e819a6b9a790b5fd8e4673450a5472a53b0c990b`.
 
+### Goal: sanitize live action values before desktop refresh
+
+Acceptance criterion: object, non-numeric, NaN, or infinite action elements must not raise from the desktop action panel. Action indices must remain aligned with joint names, convertible values should be retained, and both live-event and disk-snapshot frame paths must use the same normalization.
+
+Observed baseline:
+
+- A minimal real `_refresh_ui()` call with an object-valued action raised `TypeError` during `float(value)`.
+- The live event path normalized the frame envelope, but the disk snapshot fallback stored an unnormalized frame in `DesktopLabApp.self.frame`.
+- One damaged action element could therefore stop all subsequent UI refreshes, especially after event-stream recovery from disk.
+
+Implemented:
+
+- Convert each action element to a finite float inside `normalize_frame_payload()`.
+- Preserve list length and action-to-joint alignment by replacing invalid or non-finite values with `0.0`.
+- Retain convertible numeric strings as floats.
+- Normalize snapshot fallback frames before storing them in app state and sending them to `PhysicsCanvas`.
+
+Verification:
+
+```text
+Desktop app tests: 9 passed
+Object-valued action baseline: TypeError
+Normalized actions after fix: [0.0, 0.5]
+Full _refresh_ui() after fix: completed
+Rendered zero action: true
+Rendered 0.5 action: true
+Full Ruff: passed
+Full Pytest: 61 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
