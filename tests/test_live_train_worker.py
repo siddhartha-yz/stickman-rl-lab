@@ -225,6 +225,63 @@ def test_metrics_snapshot_write_failure_backs_off_without_stopping_training(
     assert callback.metrics_snapshot_retry_after == 0.0
 
 
+def test_status_snapshot_write_failure_emits_live_state_and_recovers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeLogger:
+        name_to_value: dict[str, float] = {}
+
+    class FakeModel:
+        logger = FakeLogger()
+
+    callback = LiveTrainingCallback(
+        run_dir=tmp_path,
+        total_timesteps=64,
+        stream_stdout=True,
+    )
+    callback.model = FakeModel()  # type: ignore[assignment]
+    callback.num_timesteps = 8
+    writes = 0
+    emitted: list[tuple[str, object]] = []
+
+    def flaky_status_write(path: Path, payload: object) -> None:
+        nonlocal writes
+        assert path == callback.status_path
+        writes += 1
+        if writes == 1:
+            raise PermissionError("simulated persistent status lock")
+        path.write_text(json.dumps(payload), encoding="utf-8")
+
+    def capture_event(event_type: str, payload: object, *, enabled: bool) -> bool:
+        if enabled:
+            emitted.append((event_type, payload))
+        return enabled
+
+    monkeypatch.setattr(worker_module, "atomic_json", flaky_status_write)
+    monkeypatch.setattr(worker_module, "emit_stdout_event", capture_event)
+
+    callback._write_status(force_disk=True)
+
+    assert writes == 1
+    assert callback.status_snapshot_error == (
+        "PermissionError: simulated persistent status lock"
+    )
+    assert callback.status_snapshot_retry_after > 0.0
+    assert [event_type for event_type, _ in emitted] == ["status", "log"]
+    assert emitted[0][1]["state"] == "starting"  # type: ignore[index]
+    assert emitted[0][1]["status_snapshot_error"] == callback.status_snapshot_error  # type: ignore[index]
+
+    callback._write_status(force_disk=True)
+
+    assert writes == 2
+    assert callback.status_path.is_file()
+    assert callback.status_snapshot_error is None
+    assert callback.status_snapshot_retry_after == 0.0
+    assert emitted[-1][0] == "status"
+    assert emitted[-1][1]["status_snapshot_error"] is None  # type: ignore[index]
+
+
 def test_control_read_retries_transient_permission_error(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

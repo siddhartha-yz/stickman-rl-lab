@@ -125,6 +125,8 @@ class LiveTrainingCallback(BaseCallback):
         self.metrics_snapshot_error: str | None = None
         self.metadata_snapshot_retry_after = 0.0
         self.metadata_snapshot_error: str | None = None
+        self.status_snapshot_retry_after = 0.0
+        self.status_snapshot_error: str | None = None
         self.cached_metadata: Any | None = None
         self.started_monotonic = time.monotonic()
         self.started_at = datetime.now().isoformat(timespec="seconds")
@@ -205,13 +207,34 @@ class LiveTrainingCallback(BaseCallback):
             "frame_snapshot_error": self.frame_snapshot_error,
             "metrics_snapshot_error": self.metrics_snapshot_error,
             "metadata_snapshot_error": self.metadata_snapshot_error,
+            "status_snapshot_error": self.status_snapshot_error,
         }
 
-    def _write_status(self, state: str | None = None) -> None:
+    def _write_status(self, state: str | None = None, force_disk: bool = False) -> None:
+        now = time.monotonic()
+        new_error: str | None = None
+        if force_disk or now >= self.status_snapshot_retry_after:
+            try:
+                atomic_json(self.status_path, self._status_payload(state))
+            except OSError as exc:
+                new_error = f"{type(exc).__name__}: {exc}"
+                self.status_snapshot_error = new_error
+                self.status_snapshot_retry_after = now + 1.0
+            else:
+                self.status_snapshot_error = None
+                self.status_snapshot_retry_after = 0.0
         payload = self._status_payload(state)
-        atomic_json(self.status_path, payload)
         self.stream_stdout = emit_stdout_event("status", payload, enabled=self.stream_stdout)
-        self.last_status_write = time.monotonic()
+        if new_error is not None:
+            self.stream_stdout = emit_stdout_event(
+                "log",
+                {
+                    "stream": "worker",
+                    "text": f"status snapshot write failed; retrying later: {new_error}",
+                },
+                enabled=self.stream_stdout,
+            )
+        self.last_status_write = now
 
     def _write_metrics(self, force_disk: bool = False) -> None:
         payload = {
@@ -354,7 +377,7 @@ class LiveTrainingCallback(BaseCallback):
         if control.get("stop"):
             self.state = "stopping"
             self.stop_requested = True
-            self._write_status()
+            self._write_status(force_disk=True)
             return False
         while control.get("paused"):
             self.state = "paused"
@@ -368,7 +391,7 @@ class LiveTrainingCallback(BaseCallback):
             if control.get("stop"):
                 self.state = "stopping"
                 self.stop_requested = True
-                self._write_status()
+                self._write_status(force_disk=True)
                 return False
         self.state = "running"
         return True
@@ -376,7 +399,7 @@ class LiveTrainingCallback(BaseCallback):
     def _on_training_start(self) -> None:
         self.state = "running"
         self._write_frame(force_disk=True)
-        self._write_status()
+        self._write_status(force_disk=True)
         self._write_metrics(force_disk=True)
 
     def _on_step(self) -> bool:
@@ -433,7 +456,9 @@ class LiveTrainingCallback(BaseCallback):
     def _on_training_end(self) -> None:
         self._write_frame(force_disk=True)
         self._write_metrics(force_disk=True)
-        self._write_status("stopped" if self.stop_requested else "saving")
+        self._write_status(
+            "stopped" if self.stop_requested else "saving", force_disk=True
+        )
 
 
 def run(args: argparse.Namespace) -> None:
