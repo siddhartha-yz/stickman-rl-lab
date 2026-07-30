@@ -313,6 +313,44 @@ def test_unexpected_process_exit_marks_run_failed(
     )
 
 
+def test_desktop_controller_records_initialization_write_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_atomic_json = controller_module._atomic_json
+    write_count = 0
+
+    def fail_second_write(path: Path, payload: object) -> None:
+        nonlocal write_count
+        write_count += 1
+        if write_count == 2:
+            raise PermissionError("simulated disk sharing failure")
+        original_atomic_json(path, payload)
+
+    monkeypatch.setattr(controller_module, "_atomic_json", fail_second_write)
+    controller = DesktopTrainingController(runs_root=tmp_path)
+
+    with pytest.raises(RuntimeError, match="Unable to initialize desktop training run"):
+        controller.start(
+            TrainingRequest(
+                stage=1,
+                timesteps=64,
+                seed=5,
+                train_config="configs/train_smoke.yaml",
+            )
+        )
+
+    snapshot = controller.snapshot()
+    assert controller.process is None
+    assert snapshot["status"]["state"] == "failed"
+    assert snapshot["status"]["num_timesteps"] == 0
+    assert "simulated disk sharing failure" in snapshot["status"]["error"]
+    assert snapshot["request"]["seed"] == 5
+    assert "Unable to initialize desktop training run" in (controller.run_dir / "worker.log").read_text(  # type: ignore[operator]
+        encoding="utf-8"
+    )
+
+
 def test_desktop_controller_records_spawn_failure(tmp_path: Path) -> None:
     controller = DesktopTrainingController(
         runs_root=tmp_path,

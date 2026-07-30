@@ -9,6 +9,7 @@ import threading
 import time
 import uuid
 from collections import deque
+from contextlib import suppress
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
@@ -144,7 +145,10 @@ class DesktopTrainingController:
         validated = request.validated()
         run_id = f"desktop-{datetime.now().strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
         run_dir = self.runs_root / run_id
-        run_dir.mkdir(parents=True, exist_ok=False)
+        try:
+            run_dir.mkdir(parents=True, exist_ok=False)
+        except OSError as exc:
+            raise RuntimeError(f"Unable to initialize desktop training run: {exc}") from exc
         self.run_id = run_id
         self.run_dir = run_dir
         self.process = None
@@ -154,9 +158,20 @@ class DesktopTrainingController:
         self._stderr = stderr_buffer
         self._threads = []
         request_payload = {"run_id": run_id, **asdict(validated), "from_scratch": True}
-        _atomic_json(run_dir / "request.json", request_payload)
-        _atomic_json(run_dir / "control.json", {"paused": False, "stop": False, "save_request": None})
-        _atomic_json(run_dir / "status.json", {"state": "starting", "num_timesteps": 0, **request_payload})
+        try:
+            _atomic_json(run_dir / "request.json", request_payload)
+            _atomic_json(
+                run_dir / "control.json",
+                {"paused": False, "stop": False, "save_request": None},
+            )
+            _atomic_json(
+                run_dir / "status.json",
+                {"state": "starting", "num_timesteps": 0, **request_payload},
+            )
+        except OSError as exc:
+            message = f"Unable to initialize desktop training run: {exc}"
+            self._persist_start_failure(run_dir, request_payload, message)
+            raise RuntimeError(message) from exc
 
         command = [
             self.python_executable,
@@ -200,15 +215,8 @@ class DesktopTrainingController:
             )
         except OSError as exc:
             message = f"Unable to start desktop trainer: {exc}"
-            failure = {
-                "state": "failed",
-                "error": message,
-                "updated_at": datetime.now().isoformat(timespec="seconds"),
-                "num_timesteps": 0,
-                **request_payload,
-            }
-            _atomic_json(run_dir / "status.json", failure)
-            self._append_worker_log("controller", message, run_dir=run_dir)
+            self.process = None
+            self._persist_start_failure(run_dir, request_payload, message)
             raise RuntimeError(message) from exc
         process = self.process
         self._append_worker_log("controller", f"started pid={process.pid}", run_dir=run_dir)
@@ -231,6 +239,24 @@ class DesktopTrainingController:
         for thread in self._threads:
             thread.start()
         return run_id
+
+    def _persist_start_failure(
+        self,
+        run_dir: Path,
+        request_payload: dict[str, Any],
+        message: str,
+    ) -> None:
+        failure = {
+            "state": "failed",
+            "error": message,
+            "updated_at": datetime.now().isoformat(timespec="seconds"),
+            "num_timesteps": 0,
+            **request_payload,
+        }
+        with suppress(OSError):
+            _atomic_json(run_dir / "status.json", failure)
+        with suppress(OSError):
+            self._append_worker_log("controller", message, run_dir=run_dir)
 
     def _append_worker_log(
         self,

@@ -1,6 +1,6 @@
 # Development progress
 
-Last updated: 2026-07-30
+Last updated: 2026-07-31
 
 ## Current verified status
 
@@ -646,6 +646,38 @@ Full Pytest: 47 passed
 ```
 
 Checkpoint commit: `e969d64612af7fc48ec432b7bd6731ef4cb69d47`.
+
+### Goal: fail desktop run initialization transactionally
+
+Acceptance criterion: a directory or initial JSON write failure before trainer spawn must be surfaced as the `RuntimeError` handled by the Tk UI, must not start a child process, and should persist a failed run plus diagnostic log whenever the run directory remains writable.
+
+Observed baseline:
+
+- Injecting `PermissionError` on the second initialization write escaped directly from `DesktopTrainingController.start()`.
+- The partial run contained only `request.json`; no durable failed status or worker diagnostic existed.
+- The Tk start callback catches `RuntimeError`, not arbitrary filesystem exceptions, so this error could escape the UI callback.
+
+Implemented:
+
+- Convert run-directory creation and initial request/control/status write failures into descriptive `RuntimeError` values.
+- Persist a best-effort failed status and `worker.log` diagnostic without attempting to launch the trainer.
+- Reuse the same guarded failure persistence for `subprocess.Popen` errors.
+- Add a deterministic regression test that fails the second initialization JSON write.
+
+Verification:
+
+```text
+Desktop controller tests: 10 passed
+Injected failure before fix: PermissionError, partial request.json only
+Injected failure after fix: RuntimeError
+Child process started: false
+Durable final state: failed
+Durable files: request.json, status.json, worker.log
+Full Ruff: passed
+Full Pytest: 48 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
 
 ## Generated artifacts
 
