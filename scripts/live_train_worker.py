@@ -60,6 +60,17 @@ def atomic_json_compact(path: Path, payload: Any) -> None:
     replace_with_retry(temporary, path)
 
 
+def read_json_with_retry(path: Path, default: Any = None) -> Any:
+    for attempt in range(20):
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (FileNotFoundError, PermissionError, json.JSONDecodeError):
+            if attempt == 19:
+                return default
+            time.sleep(0.005)
+    return default
+
+
 def json_safe(value: Any) -> Any:
     if isinstance(value, np.generic):
         return value.item()
@@ -126,21 +137,14 @@ class LiveTrainingCallback(BaseCallback):
         self.stop_requested = False
 
     def _control(self) -> dict[str, Any]:
-        for attempt in range(20):
-            try:
-                payload = json.loads(self.control_path.read_text(encoding="utf-8"))
-                if not isinstance(payload, dict):
-                    raise json.JSONDecodeError("control payload is not an object", "", 0)
-                self.last_control = {
-                    "paused": bool(payload.get("paused", False)),
-                    "stop": bool(payload.get("stop", False)),
-                    "save_request": payload.get("save_request"),
-                }
-                return dict(self.last_control)
-            except (FileNotFoundError, PermissionError, json.JSONDecodeError):
-                if attempt == 19:
-                    return dict(self.last_control)
-                time.sleep(0.005)
+        payload = read_json_with_retry(self.control_path, self.last_control)
+        if not isinstance(payload, dict):
+            return dict(self.last_control)
+        self.last_control = {
+            "paused": bool(payload.get("paused", False)),
+            "stop": bool(payload.get("stop", False)),
+            "save_request": payload.get("save_request"),
+        }
         return dict(self.last_control)
 
     def _logger_metrics(self) -> dict[str, float | None]:
@@ -419,13 +423,8 @@ def build_failure_status(
     exc: Exception,
     traceback_text: str,
 ) -> dict[str, Any]:
-    previous: dict[str, Any] = {}
-    try:
-        loaded = json.loads((run_dir / "status.json").read_text(encoding="utf-8"))
-        if isinstance(loaded, dict):
-            previous = loaded
-    except (FileNotFoundError, PermissionError, json.JSONDecodeError):
-        pass
+    loaded = read_json_with_retry(run_dir / "status.json", {})
+    previous: dict[str, Any] = loaded if isinstance(loaded, dict) else {}
     try:
         num_timesteps = int(previous.get("num_timesteps", 0) or 0)
     except (TypeError, ValueError):

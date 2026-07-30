@@ -618,6 +618,35 @@ Full Pytest: 46 passed
 
 Checkpoint commit: `16d7777628d4ef4620bcc6a14856f38d7c1eaf0e`.
 
+### Goal: preserve failure progress through transient worker JSON locks
+
+Acceptance criterion: a temporary sharing lock or atomic replacement window on `status.json` during exception handling must be retried so the failed run retains its last durable progress; worker control and failure-status reads must share one bounded retry implementation.
+
+Observed baseline:
+
+- `_control()` contained its own 20-attempt retry loop.
+- `build_failure_status()` performed one direct `status.json` read and immediately fell back to zero on the first `PermissionError`, reintroducing progress loss exactly at failure time.
+
+Implemented:
+
+- Add one worker-side `read_json_with_retry()` helper for missing, locked, or temporarily malformed JSON files.
+- Use the shared helper for both control commands and failure-status recovery.
+- Preserve the last valid control state if all retries are exhausted.
+- Add a regression test that injects two transient status-file locks and confirms 512 steps plus episode 4 survive.
+
+Verification:
+
+```text
+Worker reliability tests: 6 passed
+Transient status lock attempts before success: 2
+Preserved failure progress: 512 steps
+Preserved episode: 4
+Full Ruff: passed
+Full Pytest: 47 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
