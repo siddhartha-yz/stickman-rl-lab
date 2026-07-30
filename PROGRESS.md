@@ -741,6 +741,37 @@ Full Pytest: 50 passed
 
 Checkpoint commit: `9a99dd9964d5bf30d931cb227083875cb6742583`.
 
+### Goal: bound desktop event backlog during UI stalls
+
+Acceptance criterion: when the Tk main loop temporarily stops consuming events, high-frequency metadata/status/metrics/frame/checkpoint updates must not accumulate without bound. The UI must resume from the latest state and latest frame, while ordinary diagnostic events retain a bounded recent window.
+
+Observed baseline:
+
+- A fake worker emitted 20,000 structured frame events while the UI did not call `drain_events()`.
+- All 20,000 frames remained queued in memory, from index 0 through 19,999.
+- A modal dialog, window drag, system suspend, or slow render could therefore turn a 30 FPS stream into sustained memory growth.
+
+Implemented:
+
+- Replace the unbounded `queue.Queue` with a thread-safe `DesktopEventBuffer`.
+- Coalesce metadata, status, metrics, frame, and checkpoint events to the latest value per type.
+- Retain a bounded deque of 500 ordinary log/unknown events.
+- Drain latest state first so the UI recovers immediately instead of replaying stale frames.
+- Preserve per-run buffer isolation for sequential trainer processes.
+
+Verification:
+
+```text
+Desktop controller tests: 12 passed
+20,000-frame backlog before fix: 20,000 queued frames
+20,000-frame backlog after fix: 1 queued frame
+Retained frame index: 19,999
+Full Ruff: passed
+Full Pytest: 51 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
