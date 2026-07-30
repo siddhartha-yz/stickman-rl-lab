@@ -365,7 +365,14 @@ class DesktopTrainingController:
     def stop_and_wait(self, timeout: float = 10.0) -> int:
         if not self.is_active:
             return self.process.returncode if self.process is not None else 0
-        self.control("stop")
+        try:
+            self.control("stop")
+        except RuntimeError as exc:
+            self._append_worker_log(
+                "controller",
+                f"stop command skipped while process exits: {exc}",
+                run_dir=self.run_dir,
+            )
         try:
             return self.wait(timeout=timeout)
         except subprocess.TimeoutExpired:

@@ -227,6 +227,50 @@ def test_sequential_runs_keep_late_output_bound_to_original_run(
     assert not any(first_run in str(event) for event in current_events)
 
 
+def test_stop_and_wait_handles_terminal_status_before_process_exit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_root = tmp_path / "project"
+    (project_root / "configs").mkdir(parents=True)
+    (project_root / "configs" / "train_fake.yaml").write_text("placeholder: true\n", encoding="utf-8")
+    scripts_dir = project_root / "scripts"
+    scripts_dir.mkdir()
+    (scripts_dir / "live_train_worker.py").write_text(
+        "import argparse\n"
+        "import json\n"
+        "import time\n"
+        "from pathlib import Path\n"
+        "parser = argparse.ArgumentParser(add_help=False)\n"
+        "parser.add_argument('--run-dir')\n"
+        "args, _ = parser.parse_known_args()\n"
+        "run_dir = Path(args.run_dir)\n"
+        "status_path = run_dir / 'status.json'\n"
+        "status = json.loads(status_path.read_text(encoding='utf-8'))\n"
+        "status.update({'state': 'completed', 'num_timesteps': 64})\n"
+        "status_path.write_text(json.dumps(status), encoding='utf-8')\n"
+        "time.sleep(1.0)\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(controller_module, "PROJECT_ROOT", project_root)
+
+    controller = DesktopTrainingController(
+        runs_root=tmp_path / "runs",
+        python_executable=sys.executable,
+    )
+    controller.start(
+        TrainingRequest(stage=1, timesteps=64, seed=13, train_config="configs/train_fake.yaml")
+    )
+    controller.wait_for_state({"completed"}, timeout=10.0)
+    assert controller.is_active
+
+    assert controller.stop_and_wait(timeout=5.0) == 0
+    assert not controller.is_active
+    assert "stop command skipped while process exits" in (controller.run_dir / "worker.log").read_text(  # type: ignore[operator]
+        encoding="utf-8"
+    )
+
+
 def test_desktop_controller_records_spawn_failure(tmp_path: Path) -> None:
     controller = DesktopTrainingController(
         runs_root=tmp_path,
