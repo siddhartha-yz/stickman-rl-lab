@@ -113,6 +113,48 @@ def test_metadata_payload_normalizes_target_geometry(target: object) -> None:
     PhysicsCanvas.redraw(canvas)
 
 
+def test_metadata_payload_normalizes_obstacles_before_redraw() -> None:
+    normalized = normalize_metadata_payload(
+        {
+            "room": {"width": 12, "height": 7},
+            "target": {"position": [9.5, 0.55], "size": [0.8, 0.9]},
+            "obstacles": [
+                None,
+                {"type": "box", "position": [2], "size": [1, 1]},
+                {"type": "platform", "position": [3, 1], "size": ["bad", 1]},
+                {"type": " WALL ", "position": [4, "2"], "size": ["1.5", 2]},
+                {"type": "slope", "custom": True},
+            ],
+            "waypoints": [],
+            "body_names": [],
+            "body_geometry": {},
+        }
+    )
+    assert normalized["obstacles"] == [
+        {"type": "wall", "position": [4.0, 2.0], "size": [1.5, 2.0]},
+        {"type": "slope", "custom": True},
+    ]
+
+    canvas = PhysicsCanvas.__new__(PhysicsCanvas)
+    canvas.metadata = normalized
+    canvas.frame = normalize_frame_payload(
+        {"frame": {"body_positions": [], "body_angles": [], "info": {}}}
+    )
+    canvas.trail = deque(maxlen=140)
+    canvas.winfo_width = lambda: 800
+    canvas.winfo_height = lambda: 500
+    for name in (
+        "delete",
+        "create_text",
+        "create_line",
+        "create_rectangle",
+        "create_oval",
+        "create_polygon",
+    ):
+        setattr(canvas, name, lambda *args, **kwargs: None)
+    PhysicsCanvas.redraw(canvas)
+
+
 def test_finite_point_distinguishes_strict_and_fill_missing_modes() -> None:
     assert finite_point([1.0, "2.0"]) == [1.0, 2.0]
     assert finite_point([1.0]) is None

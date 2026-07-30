@@ -142,6 +142,26 @@ def normalize_metadata_payload(value: Any) -> dict[str, Any]:
         target_size = list(DEFAULT_TARGET_SIZE)
     target["size"] = target_size
     payload["target"] = target
+    obstacles: list[dict[str, Any]] = []
+    for value in _json_list(payload.get("obstacles")):
+        obstacle = dict(_json_object(value))
+        if not obstacle:
+            continue
+        obstacle_type = obstacle.get("type", "box")
+        obstacle["type"] = (
+            obstacle_type.strip().lower()
+            if isinstance(obstacle_type, str) and obstacle_type.strip()
+            else "box"
+        )
+        if obstacle["type"] in {"box", "platform", "wall"}:
+            position = finite_point(obstacle.get("position"))
+            size = finite_point(obstacle.get("size"))
+            if position is None or size is None or any(dimension <= 0.0 for dimension in size):
+                continue
+            obstacle["position"] = position
+            obstacle["size"] = size
+        obstacles.append(obstacle)
+    payload["obstacles"] = obstacles
     for field, prefix in (("action_names", "action"), ("body_names", "body")):
         names: list[str] = []
         for index, name in enumerate(_json_list(payload.get(field))):
