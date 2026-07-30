@@ -103,6 +103,51 @@ def _json_object(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _json_list(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
+
+
+def finite_point(value: Any, *, fill_missing: bool = False) -> list[float] | None:
+    coordinates = value if isinstance(value, list) else []
+    x = finite_float(coordinates[0]) if len(coordinates) >= 1 else None
+    y = finite_float(coordinates[1]) if len(coordinates) >= 2 else None
+    if fill_missing:
+        return [x if x is not None else 0.0, y if y is not None else 0.0]
+    if x is None or y is None:
+        return None
+    return [x, y]
+
+
+def normalize_frame_payload(value: Any) -> dict[str, Any]:
+    payload = dict(_json_object(value))
+    training = dict(_json_object(payload.get("training")))
+    actions: list[float] = []
+    for value in _json_list(training.get("action")):
+        parsed = finite_float(value)
+        actions.append(parsed if parsed is not None else 0.0)
+    training["action"] = actions
+    frame = dict(_json_object(payload.get("frame")))
+    frame["info"] = _json_object(frame.get("info"))
+    positions: list[list[float]] = []
+    for value in _json_list(frame.get("body_positions")):
+        positions.append(finite_point(value, fill_missing=True) or [0.0, 0.0])
+    frame["body_positions"] = positions
+    angles: list[float] = []
+    for value in _json_list(frame.get("body_angles")):
+        parsed = finite_float(value)
+        angles.append(parsed if parsed is not None else 0.0)
+    frame["body_angles"] = angles
+    if "target_position" in frame:
+        target_position = finite_point(frame.get("target_position"))
+        if target_position is None:
+            frame.pop("target_position", None)
+        else:
+            frame["target_position"] = target_position
+    payload["training"] = training
+    payload["frame"] = frame
+    return payload
+
+
 def _history_timestamp(value: Any, fallback: float) -> float:
     if isinstance(value, int | float) and not isinstance(value, bool):
         numeric = float(value)
@@ -209,8 +254,9 @@ class PhysicsCanvas(tk.Canvas):
         self.redraw()
 
     def set_frame(self, frame: dict[str, Any]) -> None:
+        frame = normalize_frame_payload(frame)
         self.frame = frame
-        episode = nonnegative_int(frame.get("training", {}).get("episode", 0))
+        episode = nonnegative_int(frame["training"].get("episode", 0))
         if self.last_episode is not None and episode != self.last_episode:
             self.trail.clear()
         self.last_episode = episode
@@ -605,10 +651,11 @@ class DesktopLabApp:
             self.metadata = payload
             self.physics.set_metadata(payload)
         elif event_type == "frame":
-            self.frame = payload
+            normalized = normalize_frame_payload(payload)
+            self.frame = normalized
             self.frames_received += 1
             self.frame_times.append(time.monotonic())
-            self.physics.set_frame(payload)
+            self.physics.set_frame(normalized)
         elif event_type == "status":
             self.status = payload
         elif event_type == "metrics":
@@ -638,8 +685,9 @@ class DesktopLabApp:
             if self.frame is None and snapshot_frame:
                 compact = dict(snapshot_frame)
                 compact.pop("metadata", None)
-                self.frame = compact
-                self.physics.set_frame(compact)
+                normalized = normalize_frame_payload(compact)
+                self.frame = normalized
+                self.physics.set_frame(normalized)
         self._refresh_ui()
         self._maybe_finish_smoke()
         self.root.after(16, self._tick)

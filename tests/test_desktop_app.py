@@ -2,16 +2,20 @@ from __future__ import annotations
 
 import json
 import math
+from collections import deque
 from pathlib import Path
 
 import pytest
 
 from stickman_rl.desktop.app import (
+    PhysicsCanvas,
     finite_float,
+    finite_point,
     format_number,
     format_percent,
     metric_records,
     nonnegative_int,
+    normalize_frame_payload,
     rotate_point,
     run_summaries,
 )
@@ -21,6 +25,85 @@ def test_rotate_point_matches_quarter_turn() -> None:
     x, y = rotate_point([1.0, 0.0], math.pi / 2, [2.0, 3.0])
     assert math.isclose(x, 2.0, abs_tol=1e-8)
     assert math.isclose(y, 4.0, abs_tol=1e-8)
+
+
+def test_finite_point_distinguishes_strict_and_fill_missing_modes() -> None:
+    assert finite_point([1.0, "2.0"]) == [1.0, 2.0]
+    assert finite_point([1.0]) is None
+    assert finite_point([1.0], fill_missing=True) == [1.0, 0.0]
+    assert finite_point({"bad": 1}) is None
+    assert finite_point([float("nan"), 2.0]) is None
+
+
+def test_frame_payload_normalizes_nested_wrong_shapes() -> None:
+    malformed = {"training": "bad", "frame": []}
+    normalized = normalize_frame_payload(malformed)
+
+    assert normalized["training"] == {"action": []}
+    assert normalized["frame"] == {
+        "info": {},
+        "body_positions": [],
+        "body_angles": [],
+    }
+
+    canvas = PhysicsCanvas.__new__(PhysicsCanvas)
+    canvas.trail = deque(maxlen=140)
+    canvas.last_episode = None
+    canvas.metadata = {"body_names": []}
+    canvas.redraw = lambda: None
+    PhysicsCanvas.set_frame(canvas, malformed)
+    assert canvas.frame == normalized
+
+    valid = normalize_frame_payload(
+        {
+            "training": {"episode": 3, "action": [0.25]},
+            "frame": {
+                "body_positions": [[1.0, 2.0]],
+                "body_angles": [0.5],
+                "info": {"is_success": True},
+                "target_position": [8.0, 1.0],
+            },
+        }
+    )
+    assert valid["training"] == {"episode": 3, "action": [0.25]}
+    assert valid["frame"]["body_positions"] == [[1.0, 2.0]]
+    assert valid["frame"]["body_angles"] == [0.5]
+    assert valid["frame"]["info"] == {"is_success": True}
+    assert valid["frame"]["target_position"] == [8.0, 1.0]
+
+    sanitized = normalize_frame_payload(
+        {
+            "training": {
+                "action": [{"bad": 1}, "0.5", float("nan"), float("inf")]
+            },
+            "frame": {
+                "body_positions": [
+                    {"bad": 1},
+                    [1.0, "2.0"],
+                    [float("nan"), 4.0],
+                    [5.0],
+                ],
+                "body_angles": [{"bad": 1}, "0.5", float("nan"), float("inf")],
+            },
+        }
+    )
+    assert sanitized["training"]["action"] == [0.0, 0.5, 0.0, 0.0]
+    assert sanitized["frame"]["body_positions"] == [
+        [0.0, 0.0],
+        [1.0, 2.0],
+        [0.0, 4.0],
+        [5.0, 0.0],
+    ]
+    assert sanitized["frame"]["body_angles"] == [0.0, 0.5, 0.0, 0.0]
+
+    invalid_target = normalize_frame_payload(
+        {"training": {}, "frame": {"target_position": {"bad": 1}}}
+    )
+    assert "target_position" not in invalid_target["frame"]
+    valid_target = normalize_frame_payload(
+        {"training": {}, "frame": {"target_position": ["8.0", 1.5]}}
+    )
+    assert valid_target["frame"]["target_position"] == [8.0, 1.5]
 
 
 def test_metric_input_helpers_filter_invalid_records_and_values() -> None:

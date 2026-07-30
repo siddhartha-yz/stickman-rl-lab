@@ -1084,6 +1084,133 @@ Full Pytest: 60 passed
 
 Checkpoint commit: `1e99836b9bf6c5f305034fc8e0b1013ce1d52d95`.
 
+### Goal: normalize nested live frame structures before rendering
+
+Acceptance criterion: JSON-valid frame events with non-object `training`, non-object `frame`/`info`, or non-list action/body arrays must not raise from `PhysicsCanvas.set_frame()`, redraw, or the desktop action panel. Valid nested data must retain its order and values.
+
+Observed baseline:
+
+- Calling `PhysicsCanvas.set_frame()` with string-valued `training` raised `AttributeError` on `.get()`.
+- List-valued `frame` would reach redraw and fail when mapping fields were accessed.
+- Top-level event validation therefore did not protect the renderer from nested schema drift or damaged persisted frames.
+
+Implemented:
+
+- Add one tested `normalize_frame_payload()` boundary.
+- Normalize `training`, `frame`, and nested `info` to objects.
+- Normalize action, body-position, and body-angle values to lists.
+- Apply the same normalizer in the desktop event handler and the `PhysicsCanvas` entry point so app state never retains the malformed envelope.
+- Preserve all valid nested fields, including episode, target position, actions, body positions, angles, and success info.
+
+Verification:
+
+```text
+Desktop app tests: 9 passed
+String-valued training baseline: AttributeError
+Normalized training after fix: {action: []}
+Normalized frame after fix: empty info/body arrays
+Valid nested values retained: true
+Full Ruff: passed
+Full Pytest: 61 passed
+```
+
+Checkpoint commit: `e819a6b9a790b5fd8e4673450a5472a53b0c990b`.
+
+### Goal: sanitize live action values before desktop refresh
+
+Acceptance criterion: object, non-numeric, NaN, or infinite action elements must not raise from the desktop action panel. Action indices must remain aligned with joint names, convertible values should be retained, and both live-event and disk-snapshot frame paths must use the same normalization.
+
+Observed baseline:
+
+- A minimal real `_refresh_ui()` call with an object-valued action raised `TypeError` during `float(value)`.
+- The live event path normalized the frame envelope, but the disk snapshot fallback stored an unnormalized frame in `DesktopLabApp.self.frame`.
+- One damaged action element could therefore stop all subsequent UI refreshes, especially after event-stream recovery from disk.
+
+Implemented:
+
+- Convert each action element to a finite float inside `normalize_frame_payload()`.
+- Preserve list length and action-to-joint alignment by replacing invalid or non-finite values with `0.0`.
+- Retain convertible numeric strings as floats.
+- Normalize snapshot fallback frames before storing them in app state and sending them to `PhysicsCanvas`.
+
+Verification:
+
+```text
+Desktop app tests: 9 passed
+Object-valued action baseline: TypeError
+Normalized actions after fix: [0.0, 0.5]
+Full _refresh_ui() after fix: completed
+Rendered zero action: true
+Rendered 0.5 action: true
+Full Ruff: passed
+Full Pytest: 61 passed
+```
+
+Checkpoint commit: `bf916d97d4a611737b660b8b3fcd5c0115c6dbae`.
+
+### Goal: sanitize body state elements before physics redraw
+
+Acceptance criterion: malformed, missing, or non-finite body position and angle elements must not raise from `PhysicsCanvas.redraw()`. Array length and body-index alignment must remain stable, while valid numeric and convertible string values are retained.
+
+Observed baseline:
+
+- A real `PhysicsCanvas.redraw()` call with an object-valued body angle raised `TypeError` during `float(angle)`.
+- Object, short, or non-finite body positions would subsequently break coordinate rotation or indexing.
+- One damaged rigid-body sample could therefore stop the entire live physics canvas.
+
+Implemented:
+
+- Normalize every body position to exactly two finite floats.
+- Replace invalid or missing x/y coordinates with `0.0` while preserving one output row per input row.
+- Normalize every body angle to a finite float and replace invalid/non-finite values with `0.0`.
+- Preserve valid numeric values and convertible numeric strings.
+
+Verification:
+
+```text
+Desktop app tests: 9 passed
+Object-valued angle baseline: TypeError
+Normalized invalid position: [0.0, 0.0]
+Normalized invalid angle: 0.0
+Mixed valid/string/NaN/short inputs: verified
+Real PhysicsCanvas.redraw after fix: completed
+Full Ruff: passed
+Full Pytest: 61 passed
+```
+
+Checkpoint commit: `61575e2a0ffaf97a04d76c48b34eb110fb562fa1`.
+
+### Goal: fall back safely from malformed dynamic target coordinates
+
+Acceptance criterion: malformed, short, or non-finite dynamic `target_position` values must not raise from physics redraw. Invalid dynamic coordinates should be removed so the renderer uses the known static target, while valid convertible coordinates remain available.
+
+Observed baseline:
+
+- A real `PhysicsCanvas.redraw()` call with object-valued `target_position` raised `KeyError: 0` during coordinate transformation.
+- The body-position parser contained similar finite two-dimensional conversion logic, creating two fragile coordinate paths.
+
+Implemented:
+
+- Add one reusable `finite_point()` conversion boundary.
+- Reuse it for body-position parsing, retaining partial body-coordinate recovery through explicit zero fill.
+- Require both dynamic target coordinates to be finite; remove invalid values to activate the existing static-target fallback.
+- Preserve valid numeric and convertible string target coordinates.
+
+Verification:
+
+```text
+Desktop app tests: 10 passed
+Object-valued dynamic target baseline: KeyError 0
+Invalid dynamic target retained after fix: false
+Static fallback target: [8.0, 1.0]
+Real PhysicsCanvas.redraw after fix: completed
+Valid string/numeric target conversion: verified
+Full Ruff: passed
+Full Pytest: 62 passed
+```
+
+Checkpoint commit: `46df2fac7045e1fadab4cbd6ee0465d5fce57167`.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
