@@ -560,6 +560,33 @@ Full Pytest: 44 passed
 
 Checkpoint commit: `bf6e83a62bb1146ea6bd9c7d1435eae5c32639bd`.
 
+### Goal: close the environment when worker initialization fails
+
+Acceptance criterion: once the vectorized Gym/PyMunk environment has been created, any later failure—including PPO construction, callback setup, training, or model saving—must close the environment before the worker exits.
+
+Observed baseline:
+
+- The existing `try/finally` began only immediately before `model.learn()`.
+- Injecting a PPO constructor failure after `make_vec_env()` produced `env_closed=False`.
+
+Implemented:
+
+- Move policy kwargs, PPO construction, callback creation, training, final save, and final status inside the environment's `try/finally` scope.
+- Keep environment creation outside the block so `close()` is called only for a successfully created environment.
+- Add a regression test with a fake environment and injected PPO constructor failure.
+
+Verification:
+
+```text
+Worker initialization tests: 5 passed
+Injected PPO constructor failure: caught
+Environment closed after failure: true
+Full Ruff: passed
+Full Pytest: 45 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import argparse
 import json
 from pathlib import Path
 
 import pytest
 
+import scripts.live_train_worker as worker_module
 from scripts.live_train_worker import LiveTrainingCallback, build_failure_status
 
 
@@ -55,6 +57,58 @@ def test_control_read_retains_last_valid_state_after_retry_exhaustion(
         "stop": False,
         "save_request": "save-2",
     }
+
+
+def test_run_closes_environment_when_ppo_construction_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeEnv:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    fake_env = FakeEnv()
+    monkeypatch.setattr(worker_module, "make_vec_env", lambda *args, **kwargs: fake_env)
+    monkeypatch.setattr(
+        worker_module,
+        "load_train_config",
+        lambda _path: {
+            "policy_layers": [8, 8],
+            "learning_rate": 0.0003,
+            "n_steps": 8,
+            "batch_size": 4,
+            "n_epochs": 1,
+            "gamma": 0.99,
+            "gae_lambda": 0.95,
+            "clip_range": 0.2,
+            "ent_coef": 0.0,
+            "vf_coef": 0.5,
+            "max_grad_norm": 0.5,
+        },
+    )
+
+    def fail_ppo(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("constructor failure")
+
+    monkeypatch.setattr(worker_module, "PPO", fail_ppo)
+    args = argparse.Namespace(
+        run_id="resource-failure",
+        run_dir=str(tmp_path / "run"),
+        stage=1,
+        timesteps=64,
+        seed=1,
+        train_config="configs/train_smoke.yaml",
+        env_config=None,
+        stream_stdout=False,
+    )
+
+    with pytest.raises(RuntimeError, match="constructor failure"):
+        worker_module.run(args)
+
+    assert fake_env.closed
 
 
 def test_failure_status_preserves_last_durable_progress(tmp_path: Path) -> None:
