@@ -1575,6 +1575,42 @@ Full Pytest: 81 passed
 
 Checkpoint commit: `55e7bfda6385e8efa1d4edc7e9c881439b6d16bc`.
 
+
+### Goal: keep PPO training alive when metrics recovery snapshots fail
+
+Acceptance criterion: failure to write the optional `metrics.json` observability snapshot must not raise from episode, rollout, training-start, or training-end callbacks. Live metrics should still reach the desktop, the failure should be visible in status, and later writes should retry.
+
+Observed baseline:
+
+- Injecting `PermissionError` from `atomic_json()` escaped `_write_metrics()` directly.
+- Disk persistence occurred before stdout emission, so the same failure both terminated PPO and suppressed the live metrics event.
+
+Implemented:
+
+- Emit live metrics before attempting the disk snapshot.
+- Record disk exceptions in `metrics_snapshot_error` for status payloads.
+- Back off ordinary disk retries for five seconds after failure.
+- Emit a structured worker diagnostic for the failed snapshot.
+- Force disk attempts at training start and training end.
+- Clear error/backoff state after the next successful write.
+- Preserve strict status and checkpoint/model persistence behavior.
+
+Verification:
+
+```text
+Worker reliability tests: 13 passed
+Injected metrics write before fix: PermissionError escaped
+First failed write after fix: metrics event emitted before log
+Recorded error: PermissionError: simulated metrics lock
+Retry scheduled: true
+Forced retry writes: 2 total attempts
+Error after successful retry: cleared
+Full Ruff: passed
+Full Pytest: 82 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
