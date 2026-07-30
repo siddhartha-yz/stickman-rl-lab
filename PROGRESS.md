@@ -1,6 +1,6 @@
 # Development progress
 
-Last updated: 2026-07-30
+Last updated: 2026-07-31
 
 ## Current verified status
 
@@ -646,6 +646,68 @@ Full Pytest: 47 passed
 ```
 
 Checkpoint commit: `e969d64612af7fc48ec432b7bd6731ef4cb69d47`.
+
+### Goal: fail desktop run initialization transactionally
+
+Acceptance criterion: a directory or initial JSON write failure before trainer spawn must be surfaced as the `RuntimeError` handled by the Tk UI, must not start a child process, and should persist a failed run plus diagnostic log whenever the run directory remains writable.
+
+Observed baseline:
+
+- Injecting `PermissionError` on the second initialization write escaped directly from `DesktopTrainingController.start()`.
+- The partial run contained only `request.json`; no durable failed status or worker diagnostic existed.
+- The Tk start callback catches `RuntimeError`, not arbitrary filesystem exceptions, so this error could escape the UI callback.
+
+Implemented:
+
+- Convert run-directory creation and initial request/control/status write failures into descriptive `RuntimeError` values.
+- Persist a best-effort failed status and `worker.log` diagnostic without attempting to launch the trainer.
+- Reuse the same guarded failure persistence for `subprocess.Popen` errors.
+- Add a deterministic regression test that fails the second initialization JSON write.
+
+Verification:
+
+```text
+Desktop controller tests: 10 passed
+Injected failure before fix: PermissionError, partial request.json only
+Injected failure after fix: RuntimeError
+Child process started: false
+Durable final state: failed
+Durable files: request.json, status.json, worker.log
+Full Ruff: passed
+Full Pytest: 48 passed
+```
+
+Checkpoint commit: `889cb2871e3bef5b0ce37cb168c7fb9244b31b65`.
+
+### Goal: keep trainer streams alive when worker.log is unavailable
+
+Acceptance criterion: `worker.log` is diagnostic-only; an append failure must not block trainer spawn, kill stdout/stderr reader threads, or prevent process-exit finalization. Structured and plain output must continue through the in-memory event queue.
+
+Observed baseline:
+
+- Forcing every append open of `worker.log` to raise `PermissionError` caused `DesktopTrainingController.start()` to fail before `Popen`.
+- The run remained `starting` and no trainer process was created.
+- The same unguarded write path was used by stdout/stderr readers and the process watcher.
+
+Implemented:
+
+- Make `_append_worker_log()` best-effort and return a success flag instead of propagating file-system errors.
+- Preserve all existing event-queue behavior even when durable diagnostic logging is unavailable.
+- Add a fake-worker regression test that locks `worker.log` while emitting stdout, stderr, and a completed status.
+
+Verification:
+
+```text
+Desktop controller tests: 11 passed
+Locked-log baseline: PermissionError before process spawn
+Locked-log real PPO smoke after fix: completed, 64/64 steps
+Locked-log child exit code: 0
+worker.log exists: false, as injected
+Full Ruff: passed
+Full Pytest: 49 passed
+```
+
+Checkpoint commit: `03a4a829827f754c31cdc92410794d62a416ad00`.
 
 ## Generated artifacts
 
