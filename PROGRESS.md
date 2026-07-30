@@ -1539,6 +1539,148 @@ Full Pytest: 80 passed
 
 Checkpoint commit: `22e74008d08ff007fe6cf569191c08878d7b0da9`.
 
+
+### Goal: keep PPO training alive when frame recovery snapshots fail
+
+Acceptance criterion: failure to write the optional low-frequency `frame.json` recovery snapshot must not raise from the PPO callback. The failure should be visible in status, disk writes should back off, and a later retry should restore normal snapshot persistence.
+
+Observed baseline:
+
+- Injecting `PermissionError` from `atomic_json_compact()` escaped `_write_frame()` directly.
+- Because `_write_frame()` runs at training start, approximately 60 Hz during stepping, and training end, one locked frame file could terminate the entire PPO run despite live stdout frames still working.
+
+Implemented:
+
+- Keep stdout frame emission unchanged and make only the disk frame snapshot best-effort.
+- Record the exception type/message in `frame_snapshot_error` for subsequent status payloads.
+- Back off periodic disk frame writes for five seconds after failure.
+- Emit one structured worker diagnostic when the write fails.
+- Let forced start/end writes retry immediately.
+- Clear the error and backoff state after the next successful snapshot write.
+- Preserve strict failure behavior for status, metrics, manual/final checkpoints, and model persistence.
+
+Verification:
+
+```text
+Worker reliability tests: 12 passed
+Injected frame write before fix: PermissionError escaped
+First failed write after fix: callback continued
+Recorded error: PermissionError: simulated frame lock
+Retry scheduled: true
+Forced retry writes: 2 total attempts
+Error after successful retry: cleared
+Full Ruff: passed
+Full Pytest: 81 passed
+```
+
+Checkpoint commit: `55e7bfda6385e8efa1d4edc7e9c881439b6d16bc`.
+
+
+### Goal: keep PPO training alive when metrics recovery snapshots fail
+
+Acceptance criterion: failure to write the optional `metrics.json` observability snapshot must not raise from episode, rollout, training-start, or training-end callbacks. Live metrics should still reach the desktop, the failure should be visible in status, and later writes should retry.
+
+Observed baseline:
+
+- Injecting `PermissionError` from `atomic_json()` escaped `_write_metrics()` directly.
+- Disk persistence occurred before stdout emission, so the same failure both terminated PPO and suppressed the live metrics event.
+
+Implemented:
+
+- Emit live metrics before attempting the disk snapshot.
+- Record disk exceptions in `metrics_snapshot_error` for status payloads.
+- Back off ordinary disk retries for five seconds after failure.
+- Emit a structured worker diagnostic for the failed snapshot.
+- Force disk attempts at training start and training end.
+- Clear error/backoff state after the next successful write.
+- Preserve strict status and checkpoint/model persistence behavior.
+
+Verification:
+
+```text
+Worker reliability tests: 13 passed
+Injected metrics write before fix: PermissionError escaped
+First failed write after fix: metrics event emitted before log
+Recorded error: PermissionError: simulated metrics lock
+Retry scheduled: true
+Forced retry writes: 2 total attempts
+Error after successful retry: cleared
+Full Ruff: passed
+Full Pytest: 82 passed
+```
+
+Checkpoint commit: `25e2f0ade419407f6173e8b1bb31ee84944848b7`.
+
+
+### Goal: keep PPO training alive when metadata recovery snapshots fail
+
+Acceptance criterion: failure to write the static `metadata.json` recovery snapshot during the first live frame must not terminate training or suppress live metadata/frame events. Metadata should be captured once, cached, exposed in status on failure, and retried without querying the environment every frame.
+
+Observed baseline:
+
+- Injecting `PermissionError` from the first `atomic_json(metadata.json)` call escaped `_write_frame()` during training startup.
+- Disk persistence happened before metadata/frame stdout events, so one locked metadata file could terminate PPO before the desktop received geometry.
+- Because file existence controlled metadata collection, a failed write would otherwise request the same static metadata at frame rate.
+
+Implemented:
+
+- Cache static metadata after the first environment snapshot.
+- Emit live metadata before attempting disk persistence.
+- Record disk exceptions in `metadata_snapshot_error` for status payloads.
+- Back off ordinary metadata writes for five seconds after failure.
+- Reuse the cached metadata for retry instead of re-querying the environment.
+- Let forced start/end frame writes retry immediately.
+- Clear error/backoff state after a successful write.
+
+Verification:
+
+```text
+Worker reliability tests: 14 passed
+Injected metadata write before fix: PermissionError escaped
+First failed write after fix: metadata/frame/log events emitted
+Environment metadata requests after first failure: 1
+Forced retry environment metadata requests: still 1
+Metadata file after successful retry: present
+Error after retry: cleared
+Full Ruff: passed
+Full Pytest: 83 passed
+```
+
+Checkpoint commit: `d2562e2bbdb8c7cde7e0d8dd26a255de7227e43b`.
+
+
+### Goal: keep PPO training alive when status snapshots fail
+
+Acceptance criterion: a persistent `status.json` write lock must not terminate the PPO callback or suppress live state events. Critical start/stop/end transitions must force a retry, and a later successful write must clear the recorded persistence error.
+
+Observed baseline:
+
+- `atomic_json()` already retried short Windows sharing locks for about 100 ms.
+- A persistent lock still made `_write_status()` raise `PermissionError` before emitting the stdout status event.
+- The callback could therefore terminate even though live transport and the training process were otherwise healthy.
+
+Implemented:
+
+- Track `status_snapshot_error` and a one-second retry deadline in the callback.
+- Keep status persistence best-effort while always emitting the current live status payload.
+- Emit one bounded diagnostic log when a disk write fails.
+- Force disk retries on training start, stop requests, and training end.
+- Clear the error and retry deadline after a successful persistence attempt.
+
+Verification:
+
+```text
+Worker tests: 15 passed
+Persistent status lock baseline: PermissionError
+Failure after fix: status event + log event, retry scheduled
+Forced retry after fix: status.json created
+Recovered status_snapshot_error: None
+Full Ruff: passed
+Full Pytest: 84 passed
+```
+
+Checkpoint commit: `57a0405359650a2c777d11d6c8e8c2f38465baf5`.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`

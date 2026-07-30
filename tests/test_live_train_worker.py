@@ -39,6 +39,249 @@ def test_callback_disables_stdout_after_emit_failure(
     assert not callback.stream_stdout
 
 
+def test_metadata_snapshot_write_failure_caches_and_retries(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    include_metadata_calls: list[bool] = []
+
+    class FakeVecEnv:
+        def env_method(self, name: str, include_metadata: bool = False) -> list[dict[str, object]]:
+            assert name == "live_snapshot"
+            include_metadata_calls.append(include_metadata)
+            snapshot: dict[str, object] = {
+                "frame": {
+                    "body_positions": [[1.0, 1.0]],
+                    "body_angles": [0.0],
+                    "info": {},
+                }
+            }
+            if include_metadata:
+                snapshot["metadata"] = {
+                    "body_names": ["torso"],
+                    "room": {"width": 12.0, "height": 7.0},
+                }
+            return [snapshot]
+
+    class FakeModel:
+        def __init__(self) -> None:
+            self.env = FakeVecEnv()
+
+        def get_env(self) -> FakeVecEnv:
+            return self.env
+
+    callback = LiveTrainingCallback(
+        run_dir=tmp_path,
+        total_timesteps=64,
+        stream_stdout=True,
+    )
+    callback.model = FakeModel()  # type: ignore[assignment]
+    callback.locals = {"actions": [[0.0] * 8]}
+    callback.num_timesteps = 1
+    writes = 0
+    emitted: list[str] = []
+
+    def flaky_metadata_write(path: Path, payload: object) -> None:
+        nonlocal writes
+        assert path == callback.metadata_path
+        writes += 1
+        if writes == 1:
+            raise PermissionError("simulated metadata lock")
+        path.write_text(json.dumps(payload), encoding="utf-8")
+
+    def capture_event(event_type: str, _payload: object, *, enabled: bool) -> bool:
+        if enabled:
+            emitted.append(event_type)
+        return enabled
+
+    monkeypatch.setattr(worker_module, "atomic_json", flaky_metadata_write)
+    monkeypatch.setattr(worker_module, "atomic_json_compact", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(worker_module, "emit_stdout_event", capture_event)
+
+    callback._write_frame(force_disk=True)
+
+    assert writes == 1
+    assert include_metadata_calls == [True]
+    assert callback.cached_metadata is not None
+    assert callback.metadata_snapshot_error == "PermissionError: simulated metadata lock"
+    assert callback.metadata_snapshot_retry_after > 0.0
+    assert emitted[:3] == ["metadata", "frame", "log"]
+
+    callback._write_frame(force_disk=True)
+
+    assert writes == 2
+    assert include_metadata_calls == [True, False]
+    assert callback.metadata_path.is_file()
+    assert callback.metadata_snapshot_error is None
+    assert callback.metadata_snapshot_retry_after == 0.0
+    assert emitted[-1] == "frame"
+
+
+def test_frame_snapshot_write_failure_backs_off_without_stopping_training(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeVecEnv:
+        def env_method(self, name: str, include_metadata: bool = False) -> list[dict[str, object]]:
+            assert name == "live_snapshot"
+            snapshot: dict[str, object] = {
+                "frame": {
+                    "body_positions": [[1.0, 1.0]],
+                    "body_angles": [0.0],
+                    "info": {},
+                }
+            }
+            if include_metadata:
+                snapshot["metadata"] = {"body_names": ["torso"]}
+            return [snapshot]
+
+    class FakeModel:
+        def __init__(self) -> None:
+            self.env = FakeVecEnv()
+
+        def get_env(self) -> FakeVecEnv:
+            return self.env
+
+    (tmp_path / "metadata.json").write_text("{}", encoding="utf-8")
+    callback = LiveTrainingCallback(
+        run_dir=tmp_path,
+        total_timesteps=64,
+        stream_stdout=True,
+    )
+    callback.model = FakeModel()  # type: ignore[assignment]
+    callback.locals = {"actions": [[0.0] * 8]}
+    callback.num_timesteps = 16
+    writes = 0
+    emitted: list[str] = []
+
+    def flaky_frame_write(_path: Path, _payload: object) -> None:
+        nonlocal writes
+        writes += 1
+        if writes == 1:
+            raise PermissionError("simulated frame lock")
+
+    def capture_event(event_type: str, _payload: object, *, enabled: bool) -> bool:
+        if enabled:
+            emitted.append(event_type)
+        return enabled
+
+    monkeypatch.setattr(worker_module, "atomic_json_compact", flaky_frame_write)
+    monkeypatch.setattr(worker_module, "emit_stdout_event", capture_event)
+
+    callback._write_frame(force_disk=True)
+
+    assert writes == 1
+    assert callback.frame_snapshot_error == "PermissionError: simulated frame lock"
+    assert callback.frame_snapshot_retry_after > 0.0
+    assert emitted[-1] == "log"
+
+    callback._write_frame(force_disk=True)
+
+    assert writes == 2
+    assert callback.frame_snapshot_error is None
+    assert callback.frame_snapshot_retry_after == 0.0
+    assert callback.last_disk_frame_write > 0.0
+
+
+def test_metrics_snapshot_write_failure_backs_off_without_stopping_training(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    callback = LiveTrainingCallback(
+        run_dir=tmp_path,
+        total_timesteps=64,
+        stream_stdout=True,
+    )
+    callback.episodes.append({"episode": 1, "reward": 1.0})
+    writes = 0
+    emitted: list[str] = []
+
+    def flaky_metrics_write(_path: Path, _payload: object) -> None:
+        nonlocal writes
+        writes += 1
+        if writes == 1:
+            raise PermissionError("simulated metrics lock")
+
+    def capture_event(event_type: str, _payload: object, *, enabled: bool) -> bool:
+        if enabled:
+            emitted.append(event_type)
+        return enabled
+
+    monkeypatch.setattr(worker_module, "atomic_json", flaky_metrics_write)
+    monkeypatch.setattr(worker_module, "emit_stdout_event", capture_event)
+
+    callback._write_metrics(force_disk=True)
+
+    assert writes == 1
+    assert emitted[:2] == ["metrics", "log"]
+    assert callback.metrics_snapshot_error == "PermissionError: simulated metrics lock"
+    assert callback.metrics_snapshot_retry_after > 0.0
+
+    callback._write_metrics(force_disk=True)
+
+    assert writes == 2
+    assert emitted[-1] == "metrics"
+    assert callback.metrics_snapshot_error is None
+    assert callback.metrics_snapshot_retry_after == 0.0
+
+
+def test_status_snapshot_write_failure_emits_live_state_and_recovers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeLogger:
+        name_to_value: dict[str, float] = {}
+
+    class FakeModel:
+        logger = FakeLogger()
+
+    callback = LiveTrainingCallback(
+        run_dir=tmp_path,
+        total_timesteps=64,
+        stream_stdout=True,
+    )
+    callback.model = FakeModel()  # type: ignore[assignment]
+    callback.num_timesteps = 8
+    writes = 0
+    emitted: list[tuple[str, object]] = []
+
+    def flaky_status_write(path: Path, payload: object) -> None:
+        nonlocal writes
+        assert path == callback.status_path
+        writes += 1
+        if writes == 1:
+            raise PermissionError("simulated persistent status lock")
+        path.write_text(json.dumps(payload), encoding="utf-8")
+
+    def capture_event(event_type: str, payload: object, *, enabled: bool) -> bool:
+        if enabled:
+            emitted.append((event_type, payload))
+        return enabled
+
+    monkeypatch.setattr(worker_module, "atomic_json", flaky_status_write)
+    monkeypatch.setattr(worker_module, "emit_stdout_event", capture_event)
+
+    callback._write_status(force_disk=True)
+
+    assert writes == 1
+    assert callback.status_snapshot_error == (
+        "PermissionError: simulated persistent status lock"
+    )
+    assert callback.status_snapshot_retry_after > 0.0
+    assert [event_type for event_type, _ in emitted] == ["status", "log"]
+    assert emitted[0][1]["state"] == "starting"  # type: ignore[index]
+    assert emitted[0][1]["status_snapshot_error"] == callback.status_snapshot_error  # type: ignore[index]
+
+    callback._write_status(force_disk=True)
+
+    assert writes == 2
+    assert callback.status_path.is_file()
+    assert callback.status_snapshot_error is None
+    assert callback.status_snapshot_retry_after == 0.0
+    assert emitted[-1][0] == "status"
+    assert emitted[-1][1]["status_snapshot_error"] is None  # type: ignore[index]
+
+
 def test_control_read_retries_transient_permission_error(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
