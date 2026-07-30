@@ -105,7 +105,7 @@ def read_json_file(path: Path, default: Any = None) -> Any:
     for attempt in range(20):
         try:
             return json.loads(path.read_text(encoding="utf-8"))
-        except FileNotFoundError:
+        except (FileNotFoundError, UnicodeDecodeError):
             return default
         except (PermissionError, json.JSONDecodeError):
             if attempt == 19:

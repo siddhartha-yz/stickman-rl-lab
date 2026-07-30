@@ -12,8 +12,17 @@ from stickman_rl.desktop.controller import (
     DesktopEventBuffer,
     DesktopTrainingController,
     TrainingRequest,
+    read_json_file,
     state_name,
 )
+
+
+def test_read_json_file_returns_default_for_non_utf8_bytes(tmp_path: Path) -> None:
+    path = tmp_path / "status.json"
+    path.write_bytes(b"\xff\xfe\xfa")
+    default = {"state": "inactive"}
+
+    assert read_json_file(path, default) == default
 
 
 def test_state_name_rejects_non_string_and_blank_values() -> None:

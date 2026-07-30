@@ -1444,6 +1444,36 @@ Full Pytest: 74 passed
 
 Checkpoint commit: `b591885a812f53c8757299b9ae7ed36759974138`.
 
+
+### Goal: tolerate non-UTF-8 persisted JSON in desktop and worker paths
+
+Acceptance criterion: corrupt non-UTF-8 request/status/control/metrics/frame bytes must not raise into desktop history, snapshots, or the PPO control callback. Desktop readers should return caller defaults, while the worker should retain its last valid control state.
+
+Observed baseline:
+
+- `read_json_file()` raised `UnicodeDecodeError` on a corrupt `status.json`.
+- `run_summaries()` propagated the same error and could not build desktop history.
+- `LiveTrainingCallback._control()` raised `UnicodeDecodeError`, which could terminate PPO training.
+
+Implemented:
+
+- Treat `UnicodeDecodeError` as unreadable persisted state in the shared desktop JSON reader and return its supplied default.
+- Treat `UnicodeDecodeError` as an exhausted/invalid worker JSON read and preserve the callback's last valid control state.
+- Keep existing retry behavior for sharing locks and temporarily malformed UTF-8 JSON unchanged.
+
+Verification:
+
+```text
+Controller/worker reliability tests: 27 passed
+Shared reader corrupt bytes after fix: safe default returned
+History with corrupt status after fix: summary returned with empty status
+Worker corrupt control after fix: last valid control retained
+Full Ruff: passed
+Full Pytest: 76 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
