@@ -271,6 +271,48 @@ def test_stop_and_wait_handles_terminal_status_before_process_exit(
     )
 
 
+def test_unexpected_process_exit_marks_run_failed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_root = tmp_path / "project"
+    (project_root / "configs").mkdir(parents=True)
+    (project_root / "configs" / "train_fake.yaml").write_text("placeholder: true\n", encoding="utf-8")
+    scripts_dir = project_root / "scripts"
+    scripts_dir.mkdir()
+    (scripts_dir / "live_train_worker.py").write_text(
+        "import sys\n"
+        "print('fatal import-style failure', file=sys.stderr, flush=True)\n"
+        "raise SystemExit(7)\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(controller_module, "PROJECT_ROOT", project_root)
+
+    controller = DesktopTrainingController(
+        runs_root=tmp_path / "runs",
+        python_executable=sys.executable,
+    )
+    controller.start(
+        TrainingRequest(stage=1, timesteps=64, seed=14, train_config="configs/train_fake.yaml")
+    )
+
+    assert controller.wait(timeout=10.0) == 7
+    snapshot = controller.snapshot()
+    status = snapshot["status"]
+    assert status["state"] == "failed"
+    assert status["process_exit_code"] == 7
+    assert "exited with code 7" in status["error"]
+    assert "fatal import-style failure" in status["stderr_tail"]
+    assert "fatal import-style failure" in snapshot["stderr"]
+    assert any(
+        event.get("type") == "status" and event.get("payload", {}).get("state") == "failed"
+        for event in controller.drain_events()
+    )
+    assert "process exited with code 7" in (controller.run_dir / "worker.log").read_text(  # type: ignore[operator]
+        encoding="utf-8"
+    )
+
+
 def test_desktop_controller_records_spawn_failure(tmp_path: Path) -> None:
     controller = DesktopTrainingController(
         runs_root=tmp_path,
