@@ -114,7 +114,7 @@ def test_read_json_retries_transient_permission_error(
 
     monkeypatch.setattr(Path, "read_text", flaky_read_text)
 
-    assert controller_module._read_json(status_path, {}) == {"state": "running"}
+    assert controller_module.read_json_file(status_path, {}) == {"state": "running"}
     assert attempts == 2
 
 

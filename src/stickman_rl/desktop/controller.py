@@ -39,7 +39,7 @@ def _atomic_json(path: Path, payload: Any) -> None:
     _replace_with_retry(temporary, path)
 
 
-def _read_json(path: Path, default: Any = None) -> Any:
+def read_json_file(path: Path, default: Any = None) -> Any:
     for attempt in range(20):
         try:
             return json.loads(path.read_text(encoding="utf-8"))
@@ -270,11 +270,11 @@ class DesktopTrainingController:
     def control(self, action: ControlAction) -> dict[str, Any]:
         if self.run_dir is None:
             raise RuntimeError("No desktop training run has been started")
-        status = _read_json(self.run_dir / "status.json", {})
+        status = read_json_file(self.run_dir / "status.json", {})
         if status.get("state") not in ACTIVE_STATES:
             raise RuntimeError(f"Run is already {status.get('state', 'inactive')}")
         control_path = self.run_dir / "control.json"
-        control = _read_json(control_path, {"paused": False, "stop": False, "save_request": None})
+        control = read_json_file(control_path, {"paused": False, "stop": False, "save_request": None})
         if action == "pause":
             control["paused"] = True
         elif action == "resume":
@@ -292,17 +292,17 @@ class DesktopTrainingController:
     def snapshot(self) -> dict[str, Any]:
         if self.run_dir is None:
             return {}
-        frame = _read_json(self.run_dir / "frame.json")
-        metadata = _read_json(self.run_dir / "metadata.json")
+        frame = read_json_file(self.run_dir / "frame.json")
+        metadata = read_json_file(self.run_dir / "metadata.json")
         if frame is not None and metadata is not None and "metadata" not in frame:
             frame = {"metadata": metadata, **frame}
         return {
             "run_id": self.run_id,
-            "request": _read_json(self.run_dir / "request.json", {}),
-            "status": _read_json(self.run_dir / "status.json", {}),
-            "metrics": _read_json(self.run_dir / "metrics.json", {"episodes": [], "updates": []}),
+            "request": read_json_file(self.run_dir / "request.json", {}),
+            "status": read_json_file(self.run_dir / "status.json", {}),
+            "metrics": read_json_file(self.run_dir / "metrics.json", {"episodes": [], "updates": []}),
             "frame": frame,
-            "last_save": _read_json(self.run_dir / "last_save.json"),
+            "last_save": read_json_file(self.run_dir / "last_save.json"),
             "stderr": list(self._stderr),
         }
 

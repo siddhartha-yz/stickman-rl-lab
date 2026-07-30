@@ -16,6 +16,7 @@ from stickman_rl.desktop.controller import (
     ACTIVE_STATES,
     DesktopTrainingController,
     TrainingRequest,
+    read_json_file,
     training_options,
 )
 
@@ -79,14 +80,8 @@ def run_summaries(runs_root: Path) -> list[dict[str, Any]]:
     for run_dir in runs_root.iterdir():
         if not run_dir.is_dir():
             continue
-        try:
-            request = json.loads((run_dir / "request.json").read_text(encoding="utf-8"))
-        except (FileNotFoundError, json.JSONDecodeError):
-            request = {}
-        try:
-            status = json.loads((run_dir / "status.json").read_text(encoding="utf-8"))
-        except (FileNotFoundError, json.JSONDecodeError):
-            status = {}
+        request = read_json_file(run_dir / "request.json", {})
+        status = read_json_file(run_dir / "status.json", {})
         items.append(
             {
                 "run_id": run_dir.name,
@@ -683,10 +678,9 @@ class DesktopLabApp:
         if item["run_id"] == self.controller.run_id:
             return
         run_dir = self.controller.runs_root / item["run_id"]
-        try:
-            status = json.loads((run_dir / "status.json").read_text(encoding="utf-8"))
-            metrics = json.loads((run_dir / "metrics.json").read_text(encoding="utf-8"))
-        except (FileNotFoundError, json.JSONDecodeError):
+        status = read_json_file(run_dir / "status.json")
+        metrics = read_json_file(run_dir / "metrics.json")
+        if status is None or metrics is None:
             return
         self.status = status
         self.metrics = metrics
