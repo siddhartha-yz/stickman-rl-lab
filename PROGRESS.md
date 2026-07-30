@@ -1309,6 +1309,40 @@ Full Pytest: 66 passed
 
 Checkpoint commit: `6e08ba737d58477aa154d4857c96c1b63b739e56`.
 
+
+### Goal: normalize target metadata before physics rendering
+
+Acceptance criterion: missing, non-object, short, non-finite, or non-positive target position/size metadata must not raise from `PhysicsCanvas.redraw()`. Valid target fields must be preserved independently, while only invalid fields fall back to the verified base configuration.
+
+Observed baseline:
+
+- Missing or list-valued target metadata raised `TypeError`.
+- A one-coordinate position raised `IndexError`.
+- Non-numeric or null target sizes raised `TypeError`.
+
+Implemented:
+
+- Add verified target defaults matching `configs/base.yaml`: position `[9.5, 0.55]`, size `[0.8, 0.9]`.
+- Require target positions to contain two finite coordinates.
+- Require target width and height to be finite and strictly positive.
+- Normalize position and size independently so a valid field is not discarded when the other field is malformed.
+- Keep dynamic per-frame target positions unchanged; they continue to override normalized static metadata when valid.
+
+Verification:
+
+```text
+Desktop app tests: 18 passed
+Five malformed target cases before fix: TypeError or IndexError
+Five malformed target redraws after fix: completed
+Missing/list target fallback: full base target
+Short position fallback: position only
+Bad/null size fallback: size only
+Full Ruff: passed
+Full Pytest: 71 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
