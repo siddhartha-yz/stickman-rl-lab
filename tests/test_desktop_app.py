@@ -74,6 +74,21 @@ def test_run_summaries_normalizes_mixed_timestamp_types(tmp_path: Path) -> None:
     }
 
 
+def test_run_summaries_rejects_non_object_json_payloads(tmp_path: Path) -> None:
+    run_dir = tmp_path / "desktop-invalid-shape"
+    run_dir.mkdir()
+    (run_dir / "request.json").write_text('["legacy", 1]', encoding="utf-8")
+    (run_dir / "status.json").write_text('"completed"', encoding="utf-8")
+
+    items = run_summaries(tmp_path)
+
+    assert len(items) == 1
+    assert items[0]["run_id"] == "desktop-invalid-shape"
+    assert items[0]["request"] == {}
+    assert items[0]["status"] == {}
+    assert items[0]["updated_at"] == ""
+
+
 def test_run_summaries_retries_locked_status_file(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
