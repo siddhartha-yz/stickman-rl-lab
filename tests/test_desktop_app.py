@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from stickman_rl.desktop.app import (
+    DesktopLabApp,
     PhysicsCanvas,
     finite_float,
     finite_point,
@@ -135,6 +136,65 @@ def test_desktop_formatters_handle_missing_values() -> None:
     assert format_percent(0.625) == "62.5%"
     assert format_percent("not-a-number") == "—"
     assert format_percent({"bad": 1}) == "—"
+
+
+def test_refresh_ui_tolerates_non_string_state() -> None:
+    class Widget:
+        def __init__(self) -> None:
+            self.options: dict[str, object] = {}
+
+        def configure(self, **kwargs: object) -> None:
+            self.options.update(kwargs)
+
+        def delete(self, *_args: object) -> None:
+            return None
+
+        def insert(self, *_args: object) -> None:
+            return None
+
+    class Metric:
+        def set(self, *_args: object) -> None:
+            return None
+
+    class Chart:
+        def set_values(self, _values: object) -> None:
+            return None
+
+    class Controller:
+        run_id = "repro"
+        is_active = False
+
+    app = DesktopLabApp.__new__(DesktopLabApp)
+    app.status = {"state": {"bad": 1}, "total_timesteps": 64, "num_timesteps": 1}
+    app.metrics = {"episodes": [], "updates": []}
+    app.metadata = None
+    app.frame = None
+    app.frame_times = deque(maxlen=120)
+    app.logs = deque(maxlen=80)
+    app.frames_received = 0
+    app.controller = Controller()
+    for name in (
+        "status_label",
+        "progress",
+        "progress_text",
+        "stream_label",
+        "start_button",
+        "pause_button",
+        "save_button",
+        "stop_button",
+        "session_text",
+        "action_text",
+    ):
+        setattr(app, name, Widget())
+    for name in ("metric_steps", "metric_reward", "metric_success", "metric_distance"):
+        setattr(app, name, Metric())
+    for name in ("reward_chart", "success_chart", "loss_chart"):
+        setattr(app, name, Chart())
+
+    DesktopLabApp._refresh_ui(app)
+
+    assert "等待训练" in str(app.status_label.options["text"])
+    assert app.start_button.options["state"] == "normal"
 
 
 def test_run_summaries_sorts_latest_first(tmp_path: Path) -> None:

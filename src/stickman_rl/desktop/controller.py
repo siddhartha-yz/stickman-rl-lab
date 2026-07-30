@@ -22,6 +22,12 @@ ControlAction = Literal["pause", "resume", "stop", "save"]
 LATEST_EVENT_ORDER = ("metadata", "status", "metrics", "frame", "checkpoint")
 
 
+def state_name(value: Any, default: str = "inactive") -> str:
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return default
+
+
 class DesktopEventBuffer:
     """Coalesce live state and bound diagnostic events while the UI is blocked."""
 
@@ -366,7 +372,7 @@ class DesktopTrainingController:
         )
         status_path = run_dir / "status.json"
         status = read_json_object(status_path, {}) or {}
-        if status.get("state") in {"completed", "stopped", "failed"}:
+        if state_name(status.get("state")) in {"completed", "stopped", "failed"}:
             if run_dir == self.run_dir:
                 self._terminal_status = (run_dir, status)
             return
@@ -450,8 +456,9 @@ class DesktopTrainingController:
         if self.run_dir is None:
             raise RuntimeError("No desktop training run has been started")
         status = read_json_object(self.run_dir / "status.json", {}) or {}
-        if status.get("state") not in ACTIVE_STATES:
-            raise RuntimeError(f"Run is already {status.get('state', 'inactive')}")
+        current_state = state_name(status.get("state"))
+        if current_state not in ACTIVE_STATES:
+            raise RuntimeError(f"Run is already {current_state}")
         control_path = self.run_dir / "control.json"
         control = read_json_object(
             control_path,
@@ -536,7 +543,7 @@ class DesktopTrainingController:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             status = self.snapshot().get("status", {})
-            if status.get("state") in states:
+            if state_name(status.get("state")) in states:
                 return status
             time.sleep(0.05)
         raise TimeoutError(f"Timed out waiting for states: {sorted(states)}")
