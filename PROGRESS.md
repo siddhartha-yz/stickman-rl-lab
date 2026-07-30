@@ -4,7 +4,7 @@ Last updated: 2026-07-30
 
 ## Current verified status
 
-The project is installable and runnable. The articulated PyMunk environment passes Gymnasium validation, PPO can train/save/load, headless and RGB rendering work, and deterministic stage-1 target reaching has been demonstrated. Stage-2 randomized-target training also improves generalization. The original full box-plus-platform course now has a verified deterministic majority-success policy: 54/80 successes across two independent 40-episode target sets, with 100% strict route completion. The browser interface now starts a separate PPO process from random weights, displays current Python/PyMunk body states and live metrics, and controls pause, resume, checkpoint save, and stop. Farthest-target robustness and natural upright walking remain unsolved.
+The project is installable and runnable. The articulated PyMunk environment passes Gymnasium validation, PPO can train/save/load, headless and RGB rendering work, and deterministic stage-1 target reaching has been demonstrated. Stage-2 randomized-target training also improves generalization. The original full box-plus-platform course now has a verified deterministic majority-success policy: 54/80 successes across two independent 40-episode target sets, with 100% strict route completion. The native Tk desktop interface starts a separate PPO process from random weights, displays current Python/PyMunk body states and live metrics, and controls pause, resume, checkpoint save, and stop without a web server. Farthest-target robustness and natural upright walking remain unsolved.
 
 ## Environment and installation
 
@@ -31,7 +31,7 @@ The project is installable and runnable. The articulated PyMunk environment pass
 - PPO resume with synchronized learning rate, optimizer, clipping, discount, entropy, and variance settings.
 - Periodic/latest/best checkpoints, final-vs-best evaluation, early stopping support, TensorBoard, config snapshots, runtime metadata, plots, trajectories, and GIFs.
 - Version-2 trajectories containing every rigid body's position, angle, geometry, target, obstacles, waypoints, per-frame metrics, seed, and SHA-256 provenance.
-- React/Vite live training console with from-scratch process creation, current PyMunk state rendering, rolling metrics and PPO losses, pause/resume/stop/save controls, run history, and FastAPI endpoints.
+- Native Tk desktop training console with from-scratch process creation, current PyMunk state rendering, rolling metrics and PPO losses, pause/resume/stop/save controls, and local run history.
 - Atomic worker state under `lab/runs/`, including control, status, live frame, episode/update metrics, logs, TensorBoard data, and checkpoints.
 - Ruff static analysis and automated tests.
 
@@ -39,7 +39,7 @@ The project is installable and runnable. The articulated PyMunk environment pass
 
 ```text
 Ruff: all checks passed
-Pytest: 29 passed
+Pytest: 34 passed
 Stage-0 Gymnasium/random stability: passed (1,000 decision steps)
 Stage-3 Gymnasium/random stability: passed (1,000 decision steps)
 PPO direct smoke train/save/reload: passed
@@ -316,154 +316,11 @@ Phase-balanced distillation batch tests: passed
 Target-position expert routing test: passed
 ```
 
-## Experiment observer GUI (2026-07-30)
+## Legacy WebUI history (removed 2026-07-30)
 
-The first usable browser interface was implemented as an offline, reproducible experiment observer. It deliberately replays body states recorded by the Python/PyMunk environment instead of reproducing the dynamics in JavaScript, so the visualized pose is the same state that generated the recorded rewards and metrics.
+The repository previously contained a React/Vite experiment observer and a FastAPI/WebSocket live training console. Those versions established useful requirements—real PyMunk state rendering, reproducible run records, live metrics, and process controls—but accumulated browser lifecycle, polling, proxy, dependency, and layout failure modes.
 
-### Architecture and files
-
-- `frontend/`: React 19 and Vite production interface.
-- `scripts/lab_server.py`: FastAPI experiment manifest and trajectory API plus production static-file serving.
-- `scripts/run_lab.py`: single-command production launcher.
-- `scripts/export_lab_assets.py`: fixed-seed batch trajectory exporter driven by the manifest.
-- `lab/experiments.json`: ordered learning timelines and verified experiment metadata.
-- `scripts/record_trajectory.py`: version-2 physics trajectory exporter retaining all legacy array keys.
-- `tests/test_lab_observer.py`: manifest, path, serialization, and API contract coverage.
-
-### Implemented interface
-
-- Eight-run experiment timeline grouped into Stage-1 learning and full double-obstacle evolution.
-- Actual ten-body stickman reconstruction from recorded PyMunk circle, segment, and polygon geometry.
-- Room, obstacles, red target, strict waypoints, active waypoint state, success overlay, and optional recent torso trail.
-- Play/pause, frame stepping, scrubber, and 0.25x to 4x playback.
-- Synchronized cumulative-reward, target-distance, and torso-height curves.
-- Per-frame eight-joint action display.
-- Independent verified metrics alongside trajectory-local results.
-- Seed, stage, checkpoint path, environment path, model/config/trajectory SHA-256, and trajectory format provenance.
-- Responsive desktop and narrow-screen layout.
-
-The manifest's eight version-2 trajectories were regenerated from real environments and checkpoints. Representative fixed-seed evidence:
-
-| Timeline entry | Steps | Success | Final distance | Maximum torso x | Total reward |
-|---|---:|---:|---:|---:|---:|
-| Stage-1 random baseline | 397 | yes | 0.368 | 11.128 | 163.64 |
-| Stage-1 16,384-step checkpoint | 337 | yes | 0.346 | 7.721 | 163.16 |
-| Full-route source | 900 | no | 1.715 | 8.165 | 38.09 |
-| Two-demo distillation smoke | 900 | no | 1.424 | 8.276 | 49.35 |
-| Actor interpolation 0.995 | 900 | no | 0.894 | 8.762 | 66.49 |
-| Far actor 0.4000 | 900 | no | 0.979 | 8.958 | 62.44 |
-| Recommended full-course model | 787 | yes | 0.530 | 9.198 | 197.92 |
-
-The random Stage-1 baseline can succeed because Stage 1 is intentionally unconstrained and has a historically high random-action baseline; it remains useful for comparing motion quality and completion time rather than as evidence that learning is unnecessary.
-
-### Verification evidence
-
-```text
-Frontend Vitest: 3 passed
-Frontend Vite production build: passed
-Python Ruff: all checks passed
-Python Pytest: 26 passed
-HTTP /: 200
-HTTP /api/experiments: 200, 8/8 trajectories available
-HTTP /api/experiments/full-recommended/trajectory: 200, 787 frames
-System Edge browser: loaded production UI, 8 timeline items, 1198x621 Canvas
-Playback interaction: frame advanced from 1/787 to 10/787
-Experiment switching: random baseline and recommended model both loaded
-Mobile Edge viewport: 390px layout, 348x261 Canvas, no horizontal overflow
-Browser console/page errors: none
-```
-
-Browser acceptance screenshot:
-
-- `reports/lab-observer-home.png`
-- `reports/lab-observer-mobile.png`
-
-Production launch:
-
-```bat
-C:\rlv\Scripts\python.exe scripts\run_lab.py
-```
-
-Open `http://127.0.0.1:8000`.
-
-This offline observer was the first interface iteration. It has now been superseded as the main page by the live training console documented below; its trajectory format and APIs remain useful for reproducible post-run analysis.
-
-## Live from-scratch training console (2026-07-30)
-
-The main browser page was rebuilt after the offline replay interface was judged insufficient. The new interface creates and controls actual PPO jobs. Each job starts `scripts/live_train_worker.py` in a separate Python process with no resume checkpoint, so the policy network is randomly initialized.
-
-### Architecture
-
-- `StickmanReachEnv.live_snapshot()` exports the current ten-body positions, angles, shape geometry, target, obstacles, waypoints, episode info, and action names without advancing or rendering the environment.
-- `scripts/live_train_worker.py` creates PPO, writes live frames/status/metrics atomically, handles pause/resume/stop/save requests inside an SB3 callback, creates periodic/manual/final checkpoints, and records TensorBoard output.
-- `scripts/training_api.py` validates configs, creates jobs, launches worker subprocesses, lists run history, returns current frames and metrics, and writes control commands.
-- `frontend/src/App.jsx` was replaced with a training form, current-episode Canvas, real-time progress and metric cards, reward/success/distance/loss curves, joint actions, session details, and process controls.
-- `configs/train_live.yaml` uses one environment and 512-step rollouts to produce more frequent UI updates than the production-tuned 2,048-step config.
-
-### Verified control path
-
-A 64-step direct worker smoke completed from random weights and produced a 10-body frame, two PPO updates, and `final_model.zip`. A separate HTTP/API run verified the complete control loop:
-
-```text
-Created: ui-20260730-111758-f0e257
-Running: 32 steps, 10 live rigid bodies
-Paused: stable at 65 steps for 0.8 seconds
-Manual checkpoint: manual-65.zip
-Resumed: advanced to 96 steps
-Stopped: 130 steps
-Stopped checkpoint: stopped_model.zip
-```
-
-System Edge then performed the same workflow through visible page buttons using a 5,000-step request:
-
-```text
-Pause: 72 / 5000 remained 72 / 5000 after 0.8 seconds
-Resume: advanced to 96 / 5000
-Stop: page reached status-stopped
-Canvas: 1112 x 584 CSS pixels
-Browser console errors: none
-```
-
-The page originally used `step=64` on the timestep input, which silently prevented submission of the default value 100,000 through native browser validation. This was found during browser acceptance and corrected to allow any integer at least 64.
-
-### Verification after the live-console change
-
-```text
-Python Ruff: all checks passed
-Python Pytest: 29 passed
-Frontend Vitest: 3 passed
-Frontend Vite production build: passed
-Direct live worker smoke: passed
-HTTP create/pause/save/resume/stop: passed
-System Edge UI create/pause/save/resume/stop: passed
-Browser console errors: none
-```
-
-Acceptance screenshot: `reports/live-training-console.png`.
-
-### Live frame-rate upgrade
-
-The initial live console was limited by a 280 ms browser poll and 80 ms trainer snapshot interval, producing only about 3-5 visible source frames per second. The transport was replaced in stages:
-
-- browser status/physics polling was replaced by a FastAPI WebSocket push stream;
-- static room and rigid-body geometry moved to one `metadata.json` file;
-- compact dynamic frames fell from about 5.9 KB to about 1.8 KB;
-- the trainer now injects high-frequency frames directly into FastAPI memory through a localhost WebSocket, while disk snapshots remain a 5 Hz recovery fallback;
-- localhost ingest explicitly bypasses system proxies, after the configured SOCKS proxy incorrectly intercepted `127.0.0.1`;
-- Windows atomic JSON replacement now retries brief sharing-lock failures;
-- the Canvas interpolates adjacent real trainer states with `requestAnimationFrame`.
-
-Verified Stage-1 smoke measurement:
-
-```text
-Real physics states received: 148
-Measurement duration: 5.018 seconds
-Source state rate: 29.49 FPS
-PPO training throughput: 201.29 steps/s
-Internal stream: connected, 161 messages sent, one initial connection, no error
-```
-
-The source rate varies during PPO gradient updates because the environment does not advance while the policy optimizer is running. Browser rendering continues at the display refresh cadence by interpolating only between actual trainer states; it does not invent episode outcomes or alter physics.
+After the native transport checkpoint `f33c8411f89b04ca83dc669c0e37b971b172de29` and native window checkpoint `dc62e432d4911c0bb46a5b716695045353d497d8` passed independent PPO smoke and control lifecycle tests, the WebUI source, server, web-only tests, manifest, dependencies, and screenshots were removed. Historical RL experiment metrics remain unchanged.
 
 ## Desktop application migration (2026-07-30)
 
@@ -522,6 +379,33 @@ Screenshot: reports/desktop-training-console.png
 Machine-readable report: reports/desktop-smoke.json
 ```
 
+Checkpoint commit: `dc62e432d4911c0bb46a5b716695045353d497d8`.
+
+### Goal 3: remove the WebUI stack
+
+Acceptance criterion: the repository must contain no React/Vite frontend, FastAPI/Uvicorn server, browser WebSocket transport, web-only manifest/tests, or web runtime dependencies, while the native desktop smoke still completes a real PPO run.
+
+Implemented:
+
+- Removed `frontend/`, FastAPI server/API launchers, web-only asset exporter, observer manifest, web-only tests, and legacy screenshots.
+- Removed FastAPI, Uvicorn, and WebSockets from runtime requirements.
+- Simplified `live_train_worker.py` to structured stdout events plus low-frequency disk recovery snapshots.
+- Added a distribution guard test that fails if WebUI files or dependencies return.
+- README and project layout now expose the native desktop application as the sole training UI.
+
+Verification:
+
+```text
+WebUI distribution guards: 4 passed
+Desktop UI/controller regression tests: 6 passed
+Post-removal native PPO smoke: completed, 64/64 steps
+Post-removal live frames: 7
+Post-removal rigid-body count: 10
+Post-removal child process exit: 0
+Full Ruff: passed
+Full Pytest: 34 passed
+```
+
 Checkpoint commit: pending `goal_checkpoint.ps1` result.
 
 ## Generated artifacts
@@ -541,11 +425,6 @@ Checkpoint commit: pending `goal_checkpoint.ps1` result.
 - Far-target successful demonstrations: `trajectories/distill-far-balanced-v1.npz`
 - Recommended full-course trajectory: `trajectories/stage3-full-recommended-seed1000.npz`
 - Recommended full-course GIF: `videos/stage3-full-recommended-seed1000.gif`
-- Experiment observer desktop acceptance screenshot: `reports/lab-observer-home.png`
-- Experiment observer mobile acceptance screenshot: `reports/lab-observer-mobile.png`
-- Observer learning timelines: `trajectories/lab/*.npz`
-- Live training console acceptance screenshot: `reports/live-training-console.png`
-- High-frame-rate direct-stream screenshot: `reports/live-training-direct-stream.png`
 - UI-controlled live runs and checkpoints: `lab/runs/*`
 
 ## Current limitations

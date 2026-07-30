@@ -6,7 +6,6 @@ import os
 import time
 import traceback
 from collections import deque
-from contextlib import suppress
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -16,8 +15,6 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback, CallbackList, CheckpointCallback
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.monitor import Monitor
-from websockets.exceptions import WebSocketException
-from websockets.sync.client import connect
 
 from stickman_rl.config import PROJECT_ROOT, load_env_config, load_train_config
 from stickman_rl.env import StickmanReachEnv
@@ -93,7 +90,6 @@ class LiveTrainingCallback(BaseCallback):
         self,
         run_dir: Path,
         total_timesteps: int,
-        stream_url: str | None = None,
         stream_stdout: bool = False,
         verbose: int = 0,
     ) -> None:
@@ -105,13 +101,7 @@ class LiveTrainingCallback(BaseCallback):
         self.frame_path = run_dir / "frame.json"
         self.metadata_path = run_dir / "metadata.json"
         self.metrics_path = run_dir / "metrics.json"
-        self.stream_url = stream_url
         self.stream_stdout = stream_stdout
-        self.stream_socket: Any | None = None
-        self.next_stream_retry = 0.0
-        self.stream_messages_sent = 0
-        self.stream_reconnects = 0
-        self.stream_last_error: str | None = None
         self.last_disk_frame_write = 0.0
         self.started_monotonic = time.monotonic()
         self.started_at = datetime.now().isoformat(timespec="seconds")
@@ -178,12 +168,7 @@ class LiveTrainingCallback(BaseCallback):
             "last_info": json_safe(self.last_info),
             "losses": self._logger_metrics(),
             "from_scratch": True,
-            "stream_transport": {
-                "connected": self.stream_socket is not None,
-                "messages_sent": self.stream_messages_sent,
-                "reconnects": self.stream_reconnects,
-                "last_error": self.stream_last_error,
-            },
+            "event_transport": "stdout" if self.stream_stdout else "disk-only",
         }
 
     def _write_status(self, state: str | None = None) -> None:
@@ -224,48 +209,12 @@ class LiveTrainingCallback(BaseCallback):
                 },
             }
         )
-        self._send_stream_frame(payload)
         emit_stdout_event("frame", payload, enabled=self.stream_stdout)
         now = time.monotonic()
         if force_disk or now - self.last_disk_frame_write >= 0.2:
             atomic_json_compact(self.frame_path, payload)
             self.last_disk_frame_write = now
         self.last_frame_write = now
-
-    def _send_stream_frame(self, payload: dict[str, Any]) -> None:
-        if not self.stream_url:
-            return
-        now = time.monotonic()
-        if self.stream_socket is None and now < self.next_stream_retry:
-            return
-        try:
-            if self.stream_socket is None:
-                self.stream_socket = connect(
-                    self.stream_url,
-                    open_timeout=1.0,
-                    close_timeout=0.2,
-                    proxy=None,
-                )
-                self.stream_reconnects += 1
-            self.stream_socket.send(
-                json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
-            )
-            self.stream_messages_sent += 1
-            self.stream_last_error = None
-        except (OSError, TimeoutError, WebSocketException) as exc:
-            self.stream_last_error = f"{type(exc).__name__}: {exc}"
-            if self.stream_socket is not None:
-                with suppress(Exception):
-                    self.stream_socket.close()
-            self.stream_socket = None
-            self.next_stream_retry = now + 1.0
-
-    def _close_stream(self) -> None:
-        if self.stream_socket is None:
-            return
-        with suppress(Exception):
-            self.stream_socket.close()
-        self.stream_socket = None
 
     def _manual_save(self, request_id: str) -> None:
         save_dir = self.run_dir / "checkpoints"
@@ -370,7 +319,6 @@ class LiveTrainingCallback(BaseCallback):
         self._write_frame(force_disk=True)
         self._write_metrics()
         self._write_status("stopped" if self.stop_requested else "saving")
-        self._close_stream()
 
 
 def run(args: argparse.Namespace) -> None:
@@ -422,7 +370,6 @@ def run(args: argparse.Namespace) -> None:
     live_callback = LiveTrainingCallback(
         run_dir=run_dir,
         total_timesteps=args.timesteps,
-        stream_url=args.stream_url,
         stream_stdout=args.stream_stdout,
     )
     checkpoint_callback = CheckpointCallback(
@@ -458,7 +405,6 @@ def main() -> None:
     parser.add_argument("--seed", type=int, required=True)
     parser.add_argument("--train-config", type=str, default=None)
     parser.add_argument("--env-config", type=str, default=None)
-    parser.add_argument("--stream-url", type=str, default=None)
     parser.add_argument("--stream-stdout", action="store_true")
     parser.add_argument("--run-dir", type=str, default=None)
     args = parser.parse_args()

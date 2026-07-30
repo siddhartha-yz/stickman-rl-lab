@@ -12,12 +12,12 @@ A modular two-dimensional reinforcement-learning laboratory built with **Gymnasi
 - Optional world-fixed obstacle-ray proximities append nine values for a versioned 58-value Stage-3 observation without changing existing checkpoints.
 - Decomposed reward terms logged separately to TensorBoard.
 - Headless training, real-time rendering, RGB-array rendering, random debug mode, evaluation, trajectory export, and GIF recording.
-- Browser-based live training console that launches PPO from random weights, streams the current PyMunk rigid-body state and metrics, and controls pause, resume, stop, and checkpoint saving.
+- Native Tk desktop training console that launches PPO from random weights, renders the current PyMunk rigid-body state and metrics, and controls pause, resume, stop, and checkpoint saving.
 - Configuration-driven fixed targets, random targets, obstacles, upright shaping, and walking-oriented shaping.
 - Boxes, walls, platforms, slopes, and trench floor gaps.
 - Runtime reward annealing for gradual curriculum transitions.
 - Latest, periodic, and best checkpoints; final-vs-best evaluation summaries; reproducibility metadata and config snapshots.
-- Ruff static checks and a 29-test suite covering PPO train/save/reload, obstacle-ray geometry, strict route transitions, actor interpolation, phase-balanced distillation, live physics snapshots, trajectory serialization, and training-control APIs.
+- Ruff static checks and an automated test suite covering PPO train/save/reload, obstacle-ray geometry, strict route transitions, actor interpolation, phase-balanced distillation, live physics snapshots, trajectory serialization, and native desktop process control.
 
 ## Measured results
 
@@ -73,33 +73,6 @@ C:\rlv\Scripts\python.exe scripts\run_desktop.py --smoke
 ```
 
 It performs a 64-step PPO run, captures `reports/desktop-training-console.png`, writes `reports/desktop-smoke.json`, and exits. The verified smoke completed 64/64 steps, received live frames containing all ten rigid bodies, and exited with code 0.
-
-## Legacy web training console (temporary during migration)
-
-The browser interface remains available only until the native migration is independently committed and the web-specific files are removed. It is a real training control plane, not a prerecorded demo. Creating a session starts a separate Python process, initializes a new Stable-Baselines3 PPO policy from random weights, and trains it inside the PyMunk environment. Dynamic physics frames travel directly from the trainer to the FastAPI process over a localhost WebSocket and are pushed to the browser; low-frequency JSON snapshots remain only as a recovery fallback.
-
-Build and launch the legacy interface:
-
-```bat
-C:\rlv\Scripts\python.exe -m pip install -r requirements.txt
-cd frontend
-npm install
-npm run build
-cd ..
-C:\rlv\Scripts\python.exe scripts\run_lab.py
-```
-
-Open `http://127.0.0.1:8000`, choose a stage, number of timesteps, seed, PPO config, and optional environment override, then press **创建并启动真实训练**. Stage 1 with `configs/train_live.yaml` is the recommended first from-scratch run.
-
-The live console provides:
-
-- a newly initialized PPO process for every run;
-- current episode rigid-body positions, angles, target, obstacles, waypoints, and action outputs;
-- total timesteps, FPS, episode reward, rolling success rate, final distance, and PPO losses;
-- pause, resume, stop, manual checkpoint save, periodic checkpoints, and final/stopped model saving;
-- persistent run records under `lab/runs/<run-id>/`, including request, control, status, metrics, frame snapshots, worker log, TensorBoard data, and checkpoints.
-
-The browser does not calculate physics and does not replay a pre-exported trajectory during live training. It visualizes states emitted by the currently executing Python environment. Incoming source states are interpolated with `requestAnimationFrame` so display rendering follows the monitor refresh rate while preserving the real trainer states as endpoints. A measured Stage-1 smoke run delivered 148 states in 5.018 seconds (29.5 source FPS) while PPO trained at about 201 steps/s. Historical version-2 trajectory export and the experiment-manifest API remain available for offline analysis, but they are no longer the main UI.
 
 ## Core commands
 
@@ -206,7 +179,7 @@ Open TensorBoard:
 - `configs/train_tuned.yaml`: low-entropy training used for the successful stage-1 run.
 - `configs/train_deterministic.yaml`: lower-variance, lower-learning-rate fine-tuning.
 - `configs/train_smoke.yaml`: very small orchestration validation.
-- `configs/train_live.yaml`: responsive one-environment PPO settings used by the live training console.
+- `configs/train_live.yaml`: responsive one-environment PPO settings used by the native desktop console.
 
 Random target sampling rejects positions overlapping obstacles or trench gaps. Stage 3 places targets beyond the obstacle course so episodes are physically meaningful.
 
@@ -215,16 +188,15 @@ Random target sampling rejects positions overlapping obstacles or trench gaps. S
 ```text
 configs/                 Environment, reward, curriculum, and PPO settings
 src/stickman_rl/         Physics, articulated body, Gym environment, rewards, rendering, training, evaluation
-scripts/                 Training, evaluation, live worker, training API, trajectory export, and launcher
-frontend/                React/Vite live training console and production build
-lab/runs/                 UI-created run state, live frames, metrics, logs, and checkpoints
-lab/experiments.json      Optional reproducible offline trajectory manifest
-tests/                   Environment, curriculum, rendering, PPO, live snapshot, trajectory, and API tests
+scripts/                 Training, evaluation, live worker, trajectory export, and desktop launcher
+src/stickman_rl/desktop/  Native Tk interface and direct trainer-process controller
+lab/runs/                 Desktop-created run state, live frames, metrics, logs, and checkpoints
+tests/                   Environment, curriculum, rendering, PPO, live snapshot, trajectory, and desktop tests
 checkpoints/             Periodic, best, and final models with summaries/config snapshots
 logs/                    TensorBoard and EvalCallback logs
 trajectories/            Versioned compressed physics/reward/action traces
 videos/                  GIF demonstrations
-reports/                 Evaluation plots, JSON/CSV evidence, and observer screenshots
+reports/                 Evaluation plots, JSON/CSV evidence, and desktop acceptance screenshots
 ```
 
 ## Engineering notes
@@ -233,6 +205,6 @@ Physics, rewards, rendering, training, and evaluation are separate modules. Conf
 
 The full-course recommended checkpoint was produced by collecting real stochastic successes, actor-only anchored distillation, and conservative actor interpolation. The parameter basin is unusually sensitive: adjacent interpolation coefficients can collapse from majority success to one-waypoint failure, so exact checkpoint hashes and large independent evaluation sets are retained.
 
-The live console uses an independent worker process and atomic JSON snapshots so the FastAPI server remains responsive during training. The current transport is frequent HTTP polling rather than WebSocket; the data is still generated by the active trainer, and control commands are consumed by the PPO callback at environment-step boundaries.
+The desktop console launches an independent worker process and consumes structured metadata, physics frames, status, metrics, and checkpoint events through a local stdout pipe. Atomic JSON snapshots remain as recovery and reproducibility artifacts, while control commands are consumed by the PPO callback at environment-step boundaries.
 
 Stages 4-5 are architectural and experimental targets. The repository does **not** claim that natural upright walking has been solved.
