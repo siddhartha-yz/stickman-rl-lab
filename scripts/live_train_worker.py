@@ -123,6 +123,9 @@ class LiveTrainingCallback(BaseCallback):
         self.frame_snapshot_error: str | None = None
         self.metrics_snapshot_retry_after = 0.0
         self.metrics_snapshot_error: str | None = None
+        self.metadata_snapshot_retry_after = 0.0
+        self.metadata_snapshot_error: str | None = None
+        self.cached_metadata: Any | None = None
         self.started_monotonic = time.monotonic()
         self.started_at = datetime.now().isoformat(timespec="seconds")
         self.last_frame_write = 0.0
@@ -201,6 +204,7 @@ class LiveTrainingCallback(BaseCallback):
             "event_transport": "stdout" if self.stream_stdout else "disk-only",
             "frame_snapshot_error": self.frame_snapshot_error,
             "metrics_snapshot_error": self.metrics_snapshot_error,
+            "metadata_snapshot_error": self.metadata_snapshot_error,
         }
 
     def _write_status(self, state: str | None = None) -> None:
@@ -236,15 +240,14 @@ class LiveTrainingCallback(BaseCallback):
             self.metrics_snapshot_error = None
 
     def _write_frame(self, force_disk: bool = False) -> None:
-        needs_metadata = not self.metadata_path.exists()
+        needs_metadata = self.cached_metadata is None and not self.metadata_path.exists()
         snapshot = self.training_env.env_method(
             "live_snapshot", include_metadata=needs_metadata
         )[0]
         if needs_metadata:
-            metadata = json_safe(snapshot.pop("metadata"))
-            atomic_json(self.metadata_path, metadata)
+            self.cached_metadata = json_safe(snapshot.pop("metadata"))
             self.stream_stdout = emit_stdout_event(
-                "metadata", metadata, enabled=self.stream_stdout
+                "metadata", self.cached_metadata, enabled=self.stream_stdout
             )
         actions = np.asarray(self.locals.get("actions", np.zeros((1, 8), dtype=np.float32)))
         action = actions[0].astype(float).tolist() if actions.ndim > 1 else actions.astype(float).tolist()
@@ -263,6 +266,28 @@ class LiveTrainingCallback(BaseCallback):
         )
         self.stream_stdout = emit_stdout_event("frame", payload, enabled=self.stream_stdout)
         now = time.monotonic()
+        metadata_write_due = (
+            self.cached_metadata is not None
+            and not self.metadata_path.exists()
+            and (force_disk or now >= self.metadata_snapshot_retry_after)
+        )
+        if metadata_write_due:
+            try:
+                atomic_json(self.metadata_path, self.cached_metadata)
+            except OSError as exc:
+                self.metadata_snapshot_error = f"{type(exc).__name__}: {exc}"
+                self.metadata_snapshot_retry_after = now + 5.0
+                self.stream_stdout = emit_stdout_event(
+                    "log",
+                    {
+                        "stream": "worker",
+                        "text": f"metadata snapshot write failed; retrying later: {self.metadata_snapshot_error}",
+                    },
+                    enabled=self.stream_stdout,
+                )
+            else:
+                self.metadata_snapshot_retry_after = 0.0
+                self.metadata_snapshot_error = None
         disk_write_due = force_disk or (
             now >= self.frame_snapshot_retry_after
             and now - self.last_disk_frame_write >= 0.2
