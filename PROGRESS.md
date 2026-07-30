@@ -679,6 +679,36 @@ Full Pytest: 48 passed
 
 Checkpoint commit: `889cb2871e3bef5b0ce37cb168c7fb9244b31b65`.
 
+### Goal: keep trainer streams alive when worker.log is unavailable
+
+Acceptance criterion: `worker.log` is diagnostic-only; an append failure must not block trainer spawn, kill stdout/stderr reader threads, or prevent process-exit finalization. Structured and plain output must continue through the in-memory event queue.
+
+Observed baseline:
+
+- Forcing every append open of `worker.log` to raise `PermissionError` caused `DesktopTrainingController.start()` to fail before `Popen`.
+- The run remained `starting` and no trainer process was created.
+- The same unguarded write path was used by stdout/stderr readers and the process watcher.
+
+Implemented:
+
+- Make `_append_worker_log()` best-effort and return a success flag instead of propagating file-system errors.
+- Preserve all existing event-queue behavior even when durable diagnostic logging is unavailable.
+- Add a fake-worker regression test that locks `worker.log` while emitting stdout, stderr, and a completed status.
+
+Verification:
+
+```text
+Desktop controller tests: 11 passed
+Locked-log baseline: PermissionError before process spawn
+Locked-log real PPO smoke after fix: completed, 64/64 steps
+Locked-log child exit code: 0
+worker.log exists: false, as injected
+Full Ruff: passed
+Full Pytest: 49 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`

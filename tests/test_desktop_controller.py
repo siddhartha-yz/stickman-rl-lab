@@ -167,6 +167,66 @@ def test_desktop_controller_persists_non_event_worker_output(
     assert any(event.get("type") == "status" for event in controller.drain_events())
 
 
+def test_desktop_controller_keeps_streaming_when_worker_log_is_unwritable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_root = tmp_path / "project"
+    (project_root / "configs").mkdir(parents=True)
+    (project_root / "configs" / "train_fake.yaml").write_text(
+        "placeholder: true\n",
+        encoding="utf-8",
+    )
+    scripts_dir = project_root / "scripts"
+    scripts_dir.mkdir()
+    (scripts_dir / "live_train_worker.py").write_text(
+        "import argparse\n"
+        "import json\n"
+        "import sys\n"
+        "from pathlib import Path\n"
+        "parser = argparse.ArgumentParser(add_help=False)\n"
+        "parser.add_argument('--run-dir')\n"
+        "args, _ = parser.parse_known_args()\n"
+        "status_path = Path(args.run_dir) / 'status.json'\n"
+        "status = json.loads(status_path.read_text(encoding='utf-8'))\n"
+        "status.update({'state': 'completed', 'num_timesteps': 64})\n"
+        "status_path.write_text(json.dumps(status), encoding='utf-8')\n"
+        "print('stdout survives locked log', flush=True)\n"
+        "print('stderr survives locked log', file=sys.stderr, flush=True)\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(controller_module, "PROJECT_ROOT", project_root)
+    original_open = Path.open
+
+    def locked_worker_log(path: Path, mode: str = "r", *args: object, **kwargs: object):
+        if path.name == "worker.log" and "a" in mode:
+            raise PermissionError("simulated locked worker.log")
+        return original_open(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", locked_worker_log)
+    controller = DesktopTrainingController(
+        runs_root=tmp_path / "runs",
+        python_executable=sys.executable,
+    )
+
+    controller.start(
+        TrainingRequest(stage=1, timesteps=64, seed=15, train_config="configs/train_fake.yaml")
+    )
+    assert controller.wait(timeout=10.0) == 0
+
+    snapshot = controller.snapshot()
+    events = controller.drain_events()
+    log_messages = [
+        str(event.get("payload", {}).get("text", ""))
+        for event in events
+        if event.get("type") == "log"
+    ]
+    assert snapshot["status"]["state"] == "completed"
+    assert "stdout survives locked log" in log_messages
+    assert "stderr survives locked log" in log_messages
+    assert not (controller.run_dir / "worker.log").exists()  # type: ignore[operator]
+
+
 def test_sequential_runs_keep_late_output_bound_to_original_run(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
