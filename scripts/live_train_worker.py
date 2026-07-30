@@ -119,6 +119,8 @@ class LiveTrainingCallback(BaseCallback):
         self.metrics_path = run_dir / "metrics.json"
         self.stream_stdout = stream_stdout
         self.last_disk_frame_write = 0.0
+        self.frame_snapshot_retry_after = 0.0
+        self.frame_snapshot_error: str | None = None
         self.started_monotonic = time.monotonic()
         self.started_at = datetime.now().isoformat(timespec="seconds")
         self.last_frame_write = 0.0
@@ -195,6 +197,7 @@ class LiveTrainingCallback(BaseCallback):
             "losses": self._logger_metrics(),
             "from_scratch": True,
             "event_transport": "stdout" if self.stream_stdout else "disk-only",
+            "frame_snapshot_error": self.frame_snapshot_error,
         }
 
     def _write_status(self, state: str | None = None) -> None:
@@ -239,9 +242,28 @@ class LiveTrainingCallback(BaseCallback):
         )
         self.stream_stdout = emit_stdout_event("frame", payload, enabled=self.stream_stdout)
         now = time.monotonic()
-        if force_disk or now - self.last_disk_frame_write >= 0.2:
-            atomic_json_compact(self.frame_path, payload)
-            self.last_disk_frame_write = now
+        disk_write_due = force_disk or (
+            now >= self.frame_snapshot_retry_after
+            and now - self.last_disk_frame_write >= 0.2
+        )
+        if disk_write_due:
+            try:
+                atomic_json_compact(self.frame_path, payload)
+            except OSError as exc:
+                self.frame_snapshot_error = f"{type(exc).__name__}: {exc}"
+                self.frame_snapshot_retry_after = now + 5.0
+                self.stream_stdout = emit_stdout_event(
+                    "log",
+                    {
+                        "stream": "worker",
+                        "text": f"frame snapshot write failed; retrying later: {self.frame_snapshot_error}",
+                    },
+                    enabled=self.stream_stdout,
+                )
+            else:
+                self.last_disk_frame_write = now
+                self.frame_snapshot_retry_after = 0.0
+                self.frame_snapshot_error = None
         self.last_frame_write = now
 
     def _manual_save(self, request_id: str) -> dict[str, Any]:

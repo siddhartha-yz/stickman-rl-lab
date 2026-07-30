@@ -1539,6 +1539,42 @@ Full Pytest: 80 passed
 
 Checkpoint commit: `22e74008d08ff007fe6cf569191c08878d7b0da9`.
 
+
+### Goal: keep PPO training alive when frame recovery snapshots fail
+
+Acceptance criterion: failure to write the optional low-frequency `frame.json` recovery snapshot must not raise from the PPO callback. The failure should be visible in status, disk writes should back off, and a later retry should restore normal snapshot persistence.
+
+Observed baseline:
+
+- Injecting `PermissionError` from `atomic_json_compact()` escaped `_write_frame()` directly.
+- Because `_write_frame()` runs at training start, approximately 60 Hz during stepping, and training end, one locked frame file could terminate the entire PPO run despite live stdout frames still working.
+
+Implemented:
+
+- Keep stdout frame emission unchanged and make only the disk frame snapshot best-effort.
+- Record the exception type/message in `frame_snapshot_error` for subsequent status payloads.
+- Back off periodic disk frame writes for five seconds after failure.
+- Emit one structured worker diagnostic when the write fails.
+- Let forced start/end writes retry immediately.
+- Clear the error and backoff state after the next successful snapshot write.
+- Preserve strict failure behavior for status, metrics, manual/final checkpoints, and model persistence.
+
+Verification:
+
+```text
+Worker reliability tests: 12 passed
+Injected frame write before fix: PermissionError escaped
+First failed write after fix: callback continued
+Recorded error: PermissionError: simulated frame lock
+Retry scheduled: true
+Forced retry writes: 2 total attempts
+Error after successful retry: cleared
+Full Ruff: passed
+Full Pytest: 81 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
