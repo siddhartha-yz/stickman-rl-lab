@@ -532,6 +532,34 @@ Full Pytest: 42 passed
 
 Checkpoint commit: `93c7fd4556ba2f078692d5edebac44f24384c590`.
 
+### Goal: preserve real progress in worker failure status
+
+Acceptance criterion: if the trainer fails after making progress, the final `failed` status must retain the last durable timestep, episode, rolling metrics, and requested total instead of resetting `num_timesteps` to zero; a missing or corrupt previous status may still fall back to zero.
+
+Observed baseline:
+
+- The top-level worker exception handler always wrote `num_timesteps: 0`.
+- The earlier real control-file crash occurred after the lifecycle test had observed progress, yet its persisted failed status incorrectly reported zero steps.
+
+Implemented:
+
+- Build failure payloads by merging the last durable `status.json` and then overriding state, error, traceback, timestamp, and PID.
+- Normalize the retained timestep to an integer and safely fall back to zero for absent, locked, malformed, or invalid status data.
+- Add tests for preserving 384 steps plus episode/rolling metrics and for corrupt-status fallback.
+
+Verification:
+
+```text
+Worker failure-status tests: 4 passed
+Preserved num_timesteps: 384
+Preserved episode and rolling reward: true
+Corrupt status fallback: 0 steps
+Full Ruff: passed
+Full Pytest: 44 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`

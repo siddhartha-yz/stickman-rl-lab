@@ -414,6 +414,33 @@ def run(args: argparse.Namespace) -> None:
         env.close()
 
 
+def build_failure_status(
+    run_dir: Path,
+    exc: Exception,
+    traceback_text: str,
+) -> dict[str, Any]:
+    previous: dict[str, Any] = {}
+    try:
+        loaded = json.loads((run_dir / "status.json").read_text(encoding="utf-8"))
+        if isinstance(loaded, dict):
+            previous = loaded
+    except (FileNotFoundError, PermissionError, json.JSONDecodeError):
+        pass
+    try:
+        num_timesteps = int(previous.get("num_timesteps", 0) or 0)
+    except (TypeError, ValueError):
+        num_timesteps = 0
+    return {
+        **previous,
+        "state": "failed",
+        "error": str(exc),
+        "traceback": traceback_text,
+        "updated_at": datetime.now().isoformat(timespec="seconds"),
+        "pid": os.getpid(),
+        "num_timesteps": num_timesteps,
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run one UI-controlled PPO training process.")
     parser.add_argument("--run-id", required=True)
@@ -429,14 +456,7 @@ def main() -> None:
     try:
         run(args)
     except Exception as exc:  # noqa: BLE001 - worker must persist failures for the UI
-        failure_payload = {
-            "state": "failed",
-            "error": str(exc),
-            "traceback": traceback.format_exc(),
-            "updated_at": datetime.now().isoformat(timespec="seconds"),
-            "pid": os.getpid(),
-            "num_timesteps": 0,
-        }
+        failure_payload = build_failure_status(run_dir, exc, traceback.format_exc())
         atomic_json(run_dir / "status.json", failure_payload)
         emit_stdout_event("status", failure_payload, enabled=args.stream_stdout)
         raise
