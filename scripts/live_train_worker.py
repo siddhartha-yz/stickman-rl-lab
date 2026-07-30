@@ -109,6 +109,15 @@ def finite_bool(value: Any, default: bool = False) -> bool:
     return default
 
 
+def optional_finite_float(value: Any) -> float | None:
+    if isinstance(value, np.ndarray):
+        if value.size != 1:
+            return None
+        value = value.reshape(-1)[0]
+    parsed = finite_float(value, float("nan"))
+    return parsed if np.isfinite(parsed) else None
+
+
 def json_safe(value: Any) -> Any:
     if isinstance(value, np.generic):
         return value.item()
@@ -207,8 +216,7 @@ class LiveTrainingCallback(BaseCallback):
         }
         result: dict[str, float | None] = {}
         for output_name, logger_name in names.items():
-            raw = values.get(logger_name)
-            result[output_name] = float(raw) if raw is not None and np.isfinite(raw) else None
+            result[output_name] = optional_finite_float(values.get(logger_name))
         return result
 
     def _status_payload(self, state: str | None = None) -> dict[str, Any]:

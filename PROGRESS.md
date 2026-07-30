@@ -1748,6 +1748,38 @@ Full Pytest: 88 passed
 
 Checkpoint commit: `4fdb7eca30835c3c7564c8381d6de4c354fdf92b`.
 
+
+### Goal: ignore malformed non-scalar logger metrics
+
+Acceptance criterion: multi-element arrays, objects, and non-finite values in the SB3 logger must not raise from `_logger_metrics()` or terminate rollout-end processing. Valid scalar and one-element numeric array values must remain available.
+
+Observed baseline:
+
+- A two-element NumPy logger value raised `ValueError` because its finite mask was used as a boolean.
+- An object-valued logger entry raised `TypeError` inside `np.isfinite`.
+- One custom or damaged logger value could therefore terminate the callback at rollout end.
+
+Implemented:
+
+- Add one optional finite scalar conversion boundary.
+- Accept one-element ndarrays and normal numeric scalar values.
+- Reject multi-element arrays, objects, and non-finite values as `None`.
+- Apply the same conversion to every recorded PPO logger metric.
+
+Verification:
+
+```text
+Worker tests: 20 passed
+Array logger baseline: ValueError
+Object logger baseline: TypeError
+One-element array after fix: 1.25
+Multi-element/object/infinite after fix: None
+Full Ruff: passed
+Full Pytest: 89 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`

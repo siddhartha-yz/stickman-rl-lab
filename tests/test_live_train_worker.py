@@ -26,6 +26,29 @@ def test_emit_stdout_event_returns_false_for_broken_pipe(
     assert not emit_stdout_event("status", {"state": "running"}, enabled=True)
 
 
+def test_logger_metrics_ignore_non_scalar_and_invalid_values(tmp_path: Path) -> None:
+    class FakeLogger:
+        name_to_value = {
+            "train/policy_gradient_loss": worker_module.np.array([1.25]),
+            "train/value_loss": worker_module.np.array([1.0, 2.0]),
+            "train/entropy_loss": {"bad": 1},
+            "train/approx_kl": float("inf"),
+        }
+
+    class FakeModel:
+        logger = FakeLogger()
+
+    callback = LiveTrainingCallback(run_dir=tmp_path, total_timesteps=64)
+    callback.model = FakeModel()  # type: ignore[assignment]
+
+    metrics = callback._logger_metrics()
+
+    assert metrics["policy_loss"] == 1.25
+    assert metrics["value_loss"] is None
+    assert metrics["entropy_loss"] is None
+    assert metrics["approx_kl"] is None
+
+
 def test_callback_disables_stdout_after_emit_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
