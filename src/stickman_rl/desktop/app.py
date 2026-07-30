@@ -119,6 +119,20 @@ def finite_point(value: Any, *, fill_missing: bool = False) -> list[float] | Non
     return [x, y]
 
 
+def normalize_metadata_payload(value: Any) -> dict[str, Any]:
+    payload = dict(_json_object(value))
+    for field, prefix in (("action_names", "action"), ("body_names", "body")):
+        names: list[str] = []
+        for index, name in enumerate(_json_list(payload.get(field))):
+            if isinstance(name, str) and name.strip():
+                names.append(name.strip())
+            else:
+                names.append(f"{prefix}_{index}")
+        payload[field] = names
+    payload["body_geometry"] = _json_object(payload.get("body_geometry"))
+    return payload
+
+
 def normalize_frame_payload(value: Any) -> dict[str, Any]:
     payload = dict(_json_object(value))
     training = dict(_json_object(payload.get("training")))
@@ -251,7 +265,7 @@ class PhysicsCanvas(tk.Canvas):
         self.bind("<Configure>", lambda _event: self.redraw())
 
     def set_metadata(self, metadata: dict[str, Any]) -> None:
-        self.metadata = metadata
+        self.metadata = normalize_metadata_payload(metadata)
         self.redraw()
 
     def set_frame(self, frame: dict[str, Any]) -> None:
@@ -649,8 +663,9 @@ class DesktopLabApp:
         event_type = event.get("type")
         payload = event.get("payload", {})
         if event_type == "metadata":
-            self.metadata = payload
-            self.physics.set_metadata(payload)
+            normalized = normalize_metadata_payload(payload)
+            self.metadata = normalized
+            self.physics.set_metadata(normalized)
         elif event_type == "frame":
             normalized = normalize_frame_payload(payload)
             self.frame = normalized
@@ -681,7 +696,7 @@ class DesktopLabApp:
                 self.metrics = snapshot["metrics"]
             snapshot_frame = snapshot.get("frame")
             if self.metadata is None and snapshot_frame and snapshot_frame.get("metadata"):
-                self.metadata = snapshot_frame["metadata"]
+                self.metadata = normalize_metadata_payload(snapshot_frame["metadata"])
                 self.physics.set_metadata(self.metadata)
             if self.frame is None and snapshot_frame:
                 compact = dict(snapshot_frame)
