@@ -23,6 +23,27 @@ def test_json_safe_sanitizes_numpy_nonfinite_values() -> None:
     ) == [1.0, None, None]
 
 
+def test_json_safe_converts_unsupported_objects_to_stable_text() -> None:
+    class CustomInfo:
+        pass
+
+    custom_marker = f"<{CustomInfo.__module__}.{CustomInfo.__qualname__}>"
+    payload = json_safe(
+        {
+            "path": Path("artifact.bin"),
+            "bytes": b"abc\xff",
+            "custom": CustomInfo(),
+        }
+    )
+
+    assert payload == {
+        "path": "artifact.bin",
+        "bytes": "abc�",
+        "custom": custom_marker,
+    }
+    json.dumps(payload, ensure_ascii=False, allow_nan=False)
+
+
 def test_emit_stdout_event_returns_false_for_broken_pipe(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

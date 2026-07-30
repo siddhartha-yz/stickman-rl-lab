@@ -1811,6 +1811,39 @@ Full Pytest: 90 passed
 
 Checkpoint commit: `b6d54cc85b097a76cb0d3e0b8fd2cb74f63a8612`.
 
+
+### Goal: make json_safe total for unsupported Python objects
+
+Acceptance criterion: `Path`, bytes, and arbitrary third-party objects in environment info or logger payloads must not escape `json_safe()` and cause `json.dumps` to raise. The fallback representation must remain deterministic enough for diagnostics.
+
+Observed baseline:
+
+- `Path` values raised `TypeError: Object of type WindowsPath is not JSON serializable`.
+- bytes values raised the same serialization error.
+- A custom info object also raised `TypeError` and could terminate status/frame emission.
+
+Implemented:
+
+- Convert `Path` values to path strings.
+- Decode bytes as UTF-8 with replacement for invalid byte sequences.
+- Convert all other unsupported objects to stable `<module.qualname>` type markers.
+- Preserve existing handling for mappings, sequences, native scalars, and NumPy values.
+
+Verification:
+
+```text
+Worker tests: 22 passed
+Path/bytes/custom baseline: TypeError
+Strict JSON after fix: passed
+Path result: artifact.bin
+Bytes result: abc\ufffd
+Custom result: <__main__.CustomInfo>
+Full Ruff: passed
+Full Pytest: 91 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
