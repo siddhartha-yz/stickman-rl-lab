@@ -7,8 +7,10 @@ from pathlib import Path
 import pytest
 
 from stickman_rl.desktop.app import (
+    finite_float,
     format_number,
     format_percent,
+    metric_records,
     nonnegative_int,
     rotate_point,
     run_summaries,
@@ -19,6 +21,19 @@ def test_rotate_point_matches_quarter_turn() -> None:
     x, y = rotate_point([1.0, 0.0], math.pi / 2, [2.0, 3.0])
     assert math.isclose(x, 2.0, abs_tol=1e-8)
     assert math.isclose(y, 4.0, abs_tol=1e-8)
+
+
+def test_metric_input_helpers_filter_invalid_records_and_values() -> None:
+    records = metric_records(
+        ["legacy-row", {"reward": 1.5}, 7, {"value_loss": 2.5}]
+    )
+    assert records == [{"reward": 1.5}, {"value_loss": 2.5}]
+    assert metric_records({"episodes": []}) == []
+    assert finite_float(1.25) == 1.25
+    assert finite_float("2.5") == 2.5
+    assert finite_float("not-a-number") is None
+    assert finite_float({"bad": 1}) is None
+    assert finite_float(float("inf")) is None
 
 
 def test_nonnegative_int_handles_persisted_status_values() -> None:

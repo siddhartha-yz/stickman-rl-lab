@@ -923,6 +923,37 @@ Full Pytest: 55 passed
 
 Checkpoint commit: `6157962ae230458b1d6840d82e3a93660c129180`.
 
+### Goal: sanitize malformed metric series before desktop charting
+
+Acceptance criterion: persisted or streamed metric arrays containing non-object rows, non-numeric reward/loss values, or non-finite values must not raise from the Tk refresh loop. Valid metric records and numeric points should retain their order.
+
+Observed baseline:
+
+- A string entry in `episodes` caused `_refresh_ui()` to call `.get()` and raise `AttributeError`.
+- Invalid reward or value-loss payloads would subsequently raise during Sparkline's direct `float()` conversion.
+- One damaged metrics row could therefore stop all live charts and status updates.
+
+Implemented:
+
+- Add `metric_records()` to retain only dictionary entries from episode/update lists.
+- Add `finite_float()` to accept convertible finite chart values and reject invalid, object, infinity, and NaN values.
+- Make Sparkline use the shared numeric boundary.
+- Keep valid record order and rolling-success calculation unchanged.
+
+Verification:
+
+```text
+Desktop app tests: 8 passed
+Damaged metrics baseline: AttributeError
+Full _refresh_ui() with damaged metrics after fix: completed
+Retained reward points: [7.5]
+Retained value-loss points: [2.25]
+Full Ruff: passed
+Full Pytest: 56 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`

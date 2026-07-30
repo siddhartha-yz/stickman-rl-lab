@@ -59,6 +59,20 @@ def rotate_point(point: list[float], angle: float, position: list[float]) -> tup
     )
 
 
+def finite_float(value: Any) -> float | None:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if math.isfinite(parsed) else None
+
+
+def metric_records(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
 def nonnegative_int(value: Any, default: int = 0) -> int:
     try:
         parsed = int(value)
@@ -137,7 +151,7 @@ class Sparkline(tk.Canvas):
         self.bind("<Configure>", lambda _event: self.redraw())
 
     def set_values(self, values: list[Any]) -> None:
-        self.values = [float(value) for value in values if value is not None]
+        self.values = [parsed for value in values if (parsed := finite_float(value)) is not None]
         self.redraw()
 
     def redraw(self) -> None:
@@ -646,8 +660,8 @@ class DesktopLabApp:
         self.metric_success.set(format_percent(self.status.get("rolling_success_rate")), f"完成 {self.status.get('completed_episodes', 0)} episodes")
         self.metric_distance.set(format_number(self.status.get("rolling_final_distance"), 3), "rolling final distance")
 
-        episodes = self.metrics.get("episodes", [])
-        updates = self.metrics.get("updates", [])
+        episodes = metric_records(self.metrics.get("episodes", []))
+        updates = metric_records(self.metrics.get("updates", []))
         self.reward_chart.set_values([item.get("reward") for item in episodes])
         rolling: list[float] = []
         successes: list[float] = []
