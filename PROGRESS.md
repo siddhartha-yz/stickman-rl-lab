@@ -1715,6 +1715,39 @@ Full Pytest: 86 passed
 
 Checkpoint commit: `2ee746b4272b32d7d9fdb78456b6ae8404648b0b`.
 
+
+### Goal: tolerate malformed rollout reward and done vectors
+
+Acceptance criterion: non-numeric reward entries and non-sequence or invalid done containers must not raise from `_on_step()`. Invalid rewards must fall back to `0.0`, invalid done values to `False`, and no false completed episode may be recorded.
+
+Observed baseline:
+
+- A reward vector containing an object raised `TypeError` during NumPy float conversion.
+- An object-valued dones container became a zero-dimensional array and raised `IndexError` when indexed.
+- Either malformed wrapper output could terminate the PPO callback before control handling.
+
+Implemented:
+
+- Read only the first item from list, tuple, or ndarray vector containers.
+- Reject non-sequence containers instead of coercing them through NumPy.
+- Convert reward values through the finite-float boundary.
+- Convert done values only from finite numeric or boolean inputs.
+- Fall back to reward `0.0` and done `False` for invalid values.
+
+Verification:
+
+```text
+Worker tests: 19 passed
+Object reward baseline: TypeError
+Object dones baseline: IndexError
+Bad reward after fix: callback continued, reward 0.0
+Bad dones after fix: callback continued, no episode recorded
+Full Ruff: passed
+Full Pytest: 88 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`

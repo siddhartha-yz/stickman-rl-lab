@@ -92,6 +92,23 @@ def nonnegative_int(value: Any, default: int = 0) -> int:
     return max(0, parsed)
 
 
+def first_sequence_item(value: Any) -> Any:
+    if isinstance(value, np.ndarray):
+        return value.reshape(-1)[0] if value.size else None
+    if isinstance(value, list | tuple):
+        return value[0] if value else None
+    return None
+
+
+def finite_bool(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool | np.bool_):
+        return bool(value)
+    if isinstance(value, int | float | np.number):
+        parsed = finite_float(value, float("nan"))
+        return bool(parsed) if np.isfinite(parsed) else default
+    return default
+
+
 def json_safe(value: Any) -> Any:
     if isinstance(value, np.generic):
         return value.item()
@@ -419,17 +436,16 @@ class LiveTrainingCallback(BaseCallback):
         self._write_metrics(force_disk=True)
 
     def _on_step(self) -> bool:
-        rewards = np.asarray(self.locals.get("rewards", []), dtype=float)
+        reward = finite_float(first_sequence_item(self.locals.get("rewards", [])))
         raw_infos = self.locals.get("infos", [])
         infos = raw_infos if isinstance(raw_infos, list | tuple) else []
         info = dict(infos[0]) if infos and isinstance(infos[0], dict) else {}
-        dones = np.asarray(self.locals.get("dones", []), dtype=bool)
-        reward = finite_float(rewards[0]) if rewards.size else 0.0
+        done = finite_bool(first_sequence_item(self.locals.get("dones", [])))
         self.current_episode_reward += reward
         self.episode_step += 1
         if info:
             self.last_info = info
-        if dones.size and bool(dones[0]):
+        if done:
             raw_episode_info = info.get("episode", {})
             episode_info = raw_episode_info if isinstance(raw_episode_info, dict) else {}
             episode_reward = finite_float(
