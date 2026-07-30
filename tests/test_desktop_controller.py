@@ -227,6 +227,51 @@ def test_desktop_controller_keeps_streaming_when_worker_log_is_unwritable(
     assert not (controller.run_dir / "worker.log").exists()  # type: ignore[operator]
 
 
+def test_desktop_controller_coalesces_high_frequency_frame_backlog(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_root = tmp_path / "project"
+    (project_root / "configs").mkdir(parents=True)
+    (project_root / "configs" / "train_fake.yaml").write_text(
+        "placeholder: true\n",
+        encoding="utf-8",
+    )
+    scripts_dir = project_root / "scripts"
+    scripts_dir.mkdir()
+    (scripts_dir / "live_train_worker.py").write_text(
+        "import argparse\n"
+        "import json\n"
+        "from pathlib import Path\n"
+        "parser = argparse.ArgumentParser(add_help=False)\n"
+        "parser.add_argument('--run-dir')\n"
+        "args, _ = parser.parse_known_args()\n"
+        "for index in range(5000):\n"
+        "    print('STICKMAN_EVENT\\t' + json.dumps({'type': 'frame', 'payload': {'index': index}}), flush=True)\n"
+        "status_path = Path(args.run_dir) / 'status.json'\n"
+        "status = json.loads(status_path.read_text(encoding='utf-8'))\n"
+        "status.update({'state': 'completed', 'num_timesteps': 64})\n"
+        "status_path.write_text(json.dumps(status), encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(controller_module, "PROJECT_ROOT", project_root)
+    controller = DesktopTrainingController(
+        runs_root=tmp_path / "runs",
+        python_executable=sys.executable,
+    )
+
+    controller.start(
+        TrainingRequest(stage=1, timesteps=64, seed=16, train_config="configs/train_fake.yaml")
+    )
+    assert controller.wait(timeout=20.0) == 0
+
+    events = controller.drain_events(max_items=10_000)
+    frames = [event for event in events if event.get("type") == "frame"]
+    assert len(frames) == 1
+    assert frames[0]["payload"]["index"] == 4999
+    assert controller.drain_events(max_items=10_000) == []
+
+
 def test_sequential_runs_keep_late_output_bound_to_original_run(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
