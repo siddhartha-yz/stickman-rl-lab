@@ -1780,6 +1780,70 @@ Full Pytest: 89 passed
 
 Checkpoint commit: `969d15f88b337644b1bd873eb8f9d784e3e97d93`.
 
+
+### Goal: sanitize NumPy non-finite values recursively before JSON encoding
+
+Acceptance criterion: NumPy scalar and array `NaN/Infinity` values must not bypass `json_safe()` or produce non-standard JSON tokens. Nested converted values must use the same finite-value cleanup as native Python floats.
+
+Observed baseline:
+
+- `json_safe(np.float32(np.inf))` returned Python `inf`.
+- `json_safe(np.array([1.0, np.nan, np.inf]))` returned `[1.0, nan, inf]`.
+- Strict JSON encoding with `allow_nan=False` raised `ValueError` for both payloads.
+
+Implemented:
+
+- Recursively pass NumPy scalar `.item()` results back through `json_safe()`.
+- Recursively pass NumPy array `.tolist()` results back through `json_safe()`.
+- Preserve finite numeric values while converting all nested non-finite values to `None`.
+
+Verification:
+
+```text
+Worker tests: 21 passed
+Scalar infinity baseline strict JSON: ValueError
+Array NaN/Infinity baseline strict JSON: ValueError
+Scalar after fix: null
+Array after fix: [1.0, null, null]
+Full Ruff: passed
+Full Pytest: 90 passed
+```
+
+Checkpoint commit: `b6d54cc85b097a76cb0d3e0b8fd2cb74f63a8612`.
+
+
+### Goal: make json_safe total for unsupported Python objects
+
+Acceptance criterion: `Path`, bytes, and arbitrary third-party objects in environment info or logger payloads must not escape `json_safe()` and cause `json.dumps` to raise. The fallback representation must remain deterministic enough for diagnostics.
+
+Observed baseline:
+
+- `Path` values raised `TypeError: Object of type WindowsPath is not JSON serializable`.
+- bytes values raised the same serialization error.
+- A custom info object also raised `TypeError` and could terminate status/frame emission.
+
+Implemented:
+
+- Convert `Path` values to path strings.
+- Decode bytes as UTF-8 with replacement for invalid byte sequences.
+- Convert all other unsupported objects to stable `<module.qualname>` type markers.
+- Preserve existing handling for mappings, sequences, native scalars, and NumPy values.
+
+Verification:
+
+```text
+Worker tests: 22 passed
+Path/bytes/custom baseline: TypeError
+Strict JSON after fix: passed
+Path result: artifact.bin
+Bytes result: abc\ufffd
+Custom result: <__main__.CustomInfo>
+Full Ruff: passed
+Full Pytest: 91 passed
+```
+
+Checkpoint commit: `5c4caf9886b563ea8b9070d724c54ef8ca33436f`.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`

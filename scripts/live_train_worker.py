@@ -120,16 +120,23 @@ def optional_finite_float(value: Any) -> float | None:
 
 def json_safe(value: Any) -> Any:
     if isinstance(value, np.generic):
-        return value.item()
+        return json_safe(value.item())
     if isinstance(value, np.ndarray):
-        return value.tolist()
+        return json_safe(value.tolist())
     if isinstance(value, dict):
         return {str(key): json_safe(item) for key, item in value.items()}
     if isinstance(value, list | tuple):
         return [json_safe(item) for item in value]
-    if isinstance(value, float) and not np.isfinite(value):
-        return None
-    return value
+    if isinstance(value, float):
+        return value if np.isfinite(value) else None
+    if value is None or isinstance(value, str | int | bool):
+        return value
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    value_type = type(value)
+    return f"<{value_type.__module__}.{value_type.__qualname__}>"
 
 
 def monitored_env(stage: int, seed: int, env_config: str | None):
