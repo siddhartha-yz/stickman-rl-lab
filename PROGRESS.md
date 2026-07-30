@@ -772,6 +772,36 @@ Full Pytest: 51 passed
 
 Checkpoint commit: `90f18b127e827c4885b772471a2d6d80a61f88c8`.
 
+### Goal: normalize persisted run timestamps before history sorting
+
+Acceptance criterion: desktop history refresh must tolerate numeric timestamps, ISO strings, missing values, and malformed JSON values without raising during sorting. Invalid values should fall back to the run directory modification time.
+
+Observed baseline:
+
+- One run used an ISO string `updated_at`; another used an integer epoch timestamp.
+- `sorted()` compared the raw values and raised `TypeError: '<' not supported between instances of 'int' and 'str'`.
+- A single legacy or corrupted run could therefore prevent the desktop application from building its history list.
+
+Implemented:
+
+- Convert finite numeric timestamps directly to floating-point epoch values.
+- Parse ISO timestamps, including `Z` UTC suffixes, through `datetime.fromisoformat()`.
+- Fall back to the run directory mtime for unsupported, invalid, non-finite, or absent values.
+- Keep the public run summary payload unchanged while sorting with a private numeric key.
+
+Verification:
+
+```text
+Desktop app tests: 5 passed
+Mixed numeric/string baseline: TypeError
+Mixed numeric/string/invalid after fix: 3 summaries returned
+Numeric year-2100 timestamp sorted first: true
+Full Ruff: passed
+Full Pytest: 52 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`

@@ -44,6 +44,36 @@ def test_run_summaries_sorts_latest_first(tmp_path: Path) -> None:
     assert items[0]["request"]["stage"] == 3
 
 
+def test_run_summaries_normalizes_mixed_timestamp_types(tmp_path: Path) -> None:
+    numeric = tmp_path / "desktop-numeric"
+    text = tmp_path / "desktop-text"
+    invalid = tmp_path / "desktop-invalid"
+    for run_dir in (numeric, text, invalid):
+        run_dir.mkdir()
+        (run_dir / "request.json").write_text(json.dumps({"stage": 1}), encoding="utf-8")
+    (numeric / "status.json").write_text(
+        json.dumps({"state": "completed", "updated_at": 4_102_444_800}),
+        encoding="utf-8",
+    )
+    (text / "status.json").write_text(
+        json.dumps({"state": "completed", "updated_at": "2026-07-31T00:00:00"}),
+        encoding="utf-8",
+    )
+    (invalid / "status.json").write_text(
+        json.dumps({"state": "failed", "updated_at": {"unexpected": True}}),
+        encoding="utf-8",
+    )
+
+    items = run_summaries(tmp_path)
+
+    assert items[0]["run_id"] == "desktop-numeric"
+    assert {item["run_id"] for item in items} == {
+        "desktop-numeric",
+        "desktop-text",
+        "desktop-invalid",
+    }
+
+
 def test_run_summaries_retries_locked_status_file(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
