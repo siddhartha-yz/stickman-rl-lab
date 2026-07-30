@@ -2,12 +2,41 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 import pytest
 
 import scripts.live_train_worker as worker_module
-from scripts.live_train_worker import LiveTrainingCallback, build_failure_status
+from scripts.live_train_worker import LiveTrainingCallback, build_failure_status, emit_stdout_event
+
+
+def test_emit_stdout_event_returns_false_for_broken_pipe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class BrokenStream:
+        def write(self, _text: str) -> int:
+            raise OSError(22, "simulated closed pipe")
+
+        def flush(self) -> None:
+            raise OSError(22, "simulated closed pipe")
+
+    monkeypatch.setattr(sys, "stdout", BrokenStream())
+
+    assert not emit_stdout_event("status", {"state": "running"}, enabled=True)
+
+
+def test_callback_disables_stdout_after_emit_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    callback = LiveTrainingCallback(run_dir=tmp_path, total_timesteps=64, stream_stdout=True)
+    monkeypatch.setattr(worker_module, "atomic_json", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(worker_module, "emit_stdout_event", lambda *_args, **_kwargs: False)
+
+    callback._write_metrics()
+
+    assert not callback.stream_stdout
 
 
 def test_control_read_retries_transient_permission_error(
