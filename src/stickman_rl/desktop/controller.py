@@ -40,10 +40,16 @@ def _atomic_json(path: Path, payload: Any) -> None:
 
 
 def _read_json(path: Path, default: Any = None) -> Any:
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError):
-        return default
+    for attempt in range(20):
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return default
+        except (PermissionError, json.JSONDecodeError):
+            if attempt == 19:
+                return default
+            time.sleep(0.005)
+    return default
 
 
 def _validated_config(value: str | None, *, training: bool) -> str | None:
@@ -125,6 +131,8 @@ class DesktopTrainingController:
         self._events: queue.Queue[dict[str, Any]] = queue.Queue()
         self._stderr: deque[str] = deque(maxlen=200)
         self._threads: list[threading.Thread] = []
+        self._log_lock = threading.RLock()
+        self._exit_logged = False
 
     @property
     def is_active(self) -> bool:
@@ -137,6 +145,13 @@ class DesktopTrainingController:
         run_id = f"desktop-{datetime.now().strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
         run_dir = self.runs_root / run_id
         run_dir.mkdir(parents=True, exist_ok=False)
+        self.run_id = run_id
+        self.run_dir = run_dir
+        self.process = None
+        self._events = queue.Queue()
+        self._stderr.clear()
+        self._threads = []
+        self._exit_logged = False
         request_payload = {"run_id": run_id, **asdict(validated), "from_scratch": True}
         _atomic_json(run_dir / "request.json", request_payload)
         _atomic_json(run_dir / "control.json", {"paused": False, "stop": False, "save_request": None})
@@ -164,27 +179,59 @@ class DesktopTrainingController:
         creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
         environment = os.environ.copy()
         environment["PYTHONUNBUFFERED"] = "1"
-        self.process = subprocess.Popen(
-            command,
-            cwd=PROJECT_ROOT,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            bufsize=1,
-            creationflags=creationflags,
-            env=environment,
-        )
-        self.run_id = run_id
-        self.run_dir = run_dir
+        self._append_worker_log("controller", f"launching: {subprocess.list2cmdline(command)}")
+        try:
+            self.process = subprocess.Popen(
+                command,
+                cwd=PROJECT_ROOT,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                bufsize=1,
+                creationflags=creationflags,
+                env=environment,
+            )
+        except OSError as exc:
+            message = f"Unable to start desktop trainer: {exc}"
+            failure = {
+                "state": "failed",
+                "error": message,
+                "updated_at": datetime.now().isoformat(timespec="seconds"),
+                "num_timesteps": 0,
+                **request_payload,
+            }
+            _atomic_json(run_dir / "status.json", failure)
+            self._append_worker_log("controller", message)
+            raise RuntimeError(message) from exc
+        self._append_worker_log("controller", f"started pid={self.process.pid}")
         self._threads = [
             threading.Thread(target=self._read_stdout, daemon=True),
             threading.Thread(target=self._read_stderr, daemon=True),
+            threading.Thread(target=self._watch_process, daemon=True),
         ]
         for thread in self._threads:
             thread.start()
         return run_id
+
+    def _append_worker_log(self, stream: str, text: str) -> None:
+        if self.run_dir is None:
+            return
+        timestamp = datetime.now().isoformat(timespec="milliseconds")
+        with self._log_lock, (self.run_dir / "worker.log").open("a", encoding="utf-8") as handle:
+            handle.write(f"[{timestamp}] {stream}: {text}\n")
+
+    def _record_process_exit(self, returncode: int) -> None:
+        with self._log_lock:
+            if self._exit_logged:
+                return
+            self._exit_logged = True
+        self._append_worker_log("controller", f"process exited with code {returncode}")
+
+    def _watch_process(self) -> None:
+        assert self.process is not None
+        self._record_process_exit(self.process.wait())
 
     def _read_stdout(self) -> None:
         assert self.process is not None and self.process.stdout is not None
@@ -194,10 +241,12 @@ class DesktopTrainingController:
                 try:
                     event = json.loads(line[len(EVENT_PREFIX) :])
                 except json.JSONDecodeError:
+                    self._append_worker_log("stdout", line)
                     self._events.put({"type": "log", "payload": {"stream": "stdout", "text": line}})
                 else:
                     self._events.put(event)
             elif line:
+                self._append_worker_log("stdout", line)
                 self._events.put({"type": "log", "payload": {"stream": "stdout", "text": line}})
 
     def _read_stderr(self) -> None:
@@ -206,6 +255,7 @@ class DesktopTrainingController:
             line = raw_line.rstrip("\r\n")
             if line:
                 self._stderr.append(line)
+                self._append_worker_log("stderr", line)
                 self._events.put({"type": "log", "payload": {"stream": "stderr", "text": line}})
 
     def drain_events(self, max_items: int = 500) -> list[dict[str, Any]]:
@@ -259,7 +309,9 @@ class DesktopTrainingController:
     def wait(self, timeout: float | None = None) -> int:
         if self.process is None:
             raise RuntimeError("No desktop training process has been started")
-        return self.process.wait(timeout=timeout)
+        returncode = self.process.wait(timeout=timeout)
+        self._record_process_exit(returncode)
+        return returncode
 
     def stop_and_wait(self, timeout: float = 10.0) -> int:
         if not self.is_active:

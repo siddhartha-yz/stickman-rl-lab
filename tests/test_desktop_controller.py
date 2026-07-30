@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import sys
 import time
 from pathlib import Path
 
+import pytest
+
+import stickman_rl.desktop.controller as controller_module
 from stickman_rl.desktop.controller import DesktopTrainingController, TrainingRequest
 
 
@@ -90,6 +94,102 @@ def test_desktop_controller_pause_save_resume_and_stop(tmp_path: Path) -> None:
     stopped = controller.snapshot()["status"]
     assert stopped["state"] == "stopped"
     assert Path(stopped["final_checkpoint"]).is_file()
+
+
+def test_read_json_retries_transient_permission_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    status_path = tmp_path / "status.json"
+    status_path.write_text('{"state": "running"}', encoding="utf-8")
+    original_read_text = Path.read_text
+    attempts = 0
+
+    def flaky_read_text(path: Path, *args: object, **kwargs: object) -> str:
+        nonlocal attempts
+        if path == status_path and attempts < 2:
+            attempts += 1
+            raise PermissionError("temporary sharing lock")
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", flaky_read_text)
+
+    assert controller_module._read_json(status_path, {}) == {"state": "running"}
+    assert attempts == 2
+
+
+def test_desktop_controller_persists_non_event_worker_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_root = tmp_path / "project"
+    (project_root / "configs").mkdir(parents=True)
+    (project_root / "configs" / "train_fake.yaml").write_text("placeholder: true\n", encoding="utf-8")
+    scripts_dir = project_root / "scripts"
+    scripts_dir.mkdir()
+    (scripts_dir / "live_train_worker.py").write_text(
+        "import json\n"
+        "import sys\n"
+        "print('plain stdout diagnostic', flush=True)\n"
+        "print('STICKMAN_EVENT\\t' + json.dumps({'type': 'status', 'payload': {'state': 'completed'}}), flush=True)\n"
+        "print('plain stderr diagnostic', file=sys.stderr, flush=True)\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(controller_module, "PROJECT_ROOT", project_root)
+
+    controller = DesktopTrainingController(
+        runs_root=tmp_path / "runs",
+        python_executable=sys.executable,
+    )
+    controller.start(
+        TrainingRequest(
+            stage=1,
+            timesteps=64,
+            seed=1,
+            train_config="configs/train_fake.yaml",
+        )
+    )
+    assert controller.wait(timeout=10.0) == 0
+
+    deadline = time.monotonic() + 5.0
+    log_path = controller.run_dir / "worker.log"  # type: ignore[operator]
+    while time.monotonic() < deadline:
+        text = log_path.read_text(encoding="utf-8") if log_path.exists() else ""
+        if "plain stdout diagnostic" in text and "plain stderr diagnostic" in text:
+            break
+        time.sleep(0.05)
+    else:
+        raise AssertionError("Worker diagnostics were not persisted")
+
+    assert "controller: started pid=" in text
+    assert "controller: process exited with code 0" in text
+    assert "STICKMAN_EVENT" not in text
+    assert any(event.get("type") == "status" for event in controller.drain_events())
+
+
+def test_desktop_controller_records_spawn_failure(tmp_path: Path) -> None:
+    controller = DesktopTrainingController(
+        runs_root=tmp_path,
+        python_executable=tmp_path / "missing-python.exe",
+    )
+
+    with pytest.raises(RuntimeError, match="Unable to start desktop trainer"):
+        controller.start(
+            TrainingRequest(
+                stage=1,
+                timesteps=64,
+                seed=2,
+                train_config="configs/train_smoke.yaml",
+            )
+        )
+
+    snapshot = controller.snapshot()
+    assert snapshot["status"]["state"] == "failed"
+    assert snapshot["status"]["num_timesteps"] == 0
+    assert controller.process is None
+    assert "Unable to start desktop trainer" in (controller.run_dir / "worker.log").read_text(  # type: ignore[operator]
+        encoding="utf-8"
+    )
 
 
 def test_training_request_rejects_non_training_config() -> None:
