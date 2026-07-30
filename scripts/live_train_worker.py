@@ -360,41 +360,41 @@ def run(args: argparse.Namespace) -> None:
     train_cfg = load_train_config(args.train_config)
     actual_seed = int(args.seed)
     env = make_vec_env(monitored_env(args.stage, actual_seed, args.env_config), n_envs=1, seed=actual_seed)
-    policy_kwargs = {
-        "net_arch": list(train_cfg.get("policy_layers", [256, 256])),
-        "log_std_init": float(train_cfg.get("log_std_init", 0.0)),
-    }
-    model = PPO(
-        "MlpPolicy",
-        env,
-        learning_rate=float(train_cfg["learning_rate"]),
-        n_steps=int(train_cfg["n_steps"]),
-        batch_size=int(train_cfg["batch_size"]),
-        n_epochs=int(train_cfg["n_epochs"]),
-        gamma=float(train_cfg["gamma"]),
-        gae_lambda=float(train_cfg["gae_lambda"]),
-        clip_range=float(train_cfg["clip_range"]),
-        ent_coef=float(train_cfg["ent_coef"]),
-        vf_coef=float(train_cfg["vf_coef"]),
-        max_grad_norm=float(train_cfg["max_grad_norm"]),
-        target_kl=float(train_cfg["target_kl"]) if "target_kl" in train_cfg else None,
-        policy_kwargs=policy_kwargs,
-        verbose=0,
-        tensorboard_log=str(run_dir / "tensorboard"),
-        seed=actual_seed,
-        device="auto",
-    )
-    live_callback = LiveTrainingCallback(
-        run_dir=run_dir,
-        total_timesteps=args.timesteps,
-        stream_stdout=args.stream_stdout,
-    )
-    checkpoint_callback = CheckpointCallback(
-        save_freq=max(1, int(train_cfg.get("checkpoint_freq", 5000))),
-        save_path=str(run_dir / "checkpoints"),
-        name_prefix="ppo_live",
-    )
     try:
+        policy_kwargs = {
+            "net_arch": list(train_cfg.get("policy_layers", [256, 256])),
+            "log_std_init": float(train_cfg.get("log_std_init", 0.0)),
+        }
+        model = PPO(
+            "MlpPolicy",
+            env,
+            learning_rate=float(train_cfg["learning_rate"]),
+            n_steps=int(train_cfg["n_steps"]),
+            batch_size=int(train_cfg["batch_size"]),
+            n_epochs=int(train_cfg["n_epochs"]),
+            gamma=float(train_cfg["gamma"]),
+            gae_lambda=float(train_cfg["gae_lambda"]),
+            clip_range=float(train_cfg["clip_range"]),
+            ent_coef=float(train_cfg["ent_coef"]),
+            vf_coef=float(train_cfg["vf_coef"]),
+            max_grad_norm=float(train_cfg["max_grad_norm"]),
+            target_kl=float(train_cfg["target_kl"]) if "target_kl" in train_cfg else None,
+            policy_kwargs=policy_kwargs,
+            verbose=0,
+            tensorboard_log=str(run_dir / "tensorboard"),
+            seed=actual_seed,
+            device="auto",
+        )
+        live_callback = LiveTrainingCallback(
+            run_dir=run_dir,
+            total_timesteps=args.timesteps,
+            stream_stdout=args.stream_stdout,
+        )
+        checkpoint_callback = CheckpointCallback(
+            save_freq=max(1, int(train_cfg.get("checkpoint_freq", 5000))),
+            save_path=str(run_dir / "checkpoints"),
+            name_prefix="ppo_live",
+        )
         model.learn(
             total_timesteps=args.timesteps,
             callback=CallbackList([live_callback, checkpoint_callback]),
