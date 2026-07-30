@@ -17,6 +17,29 @@ from stickman_rl.desktop.controller import (
 )
 
 
+def test_atomic_json_retries_transient_temporary_write_lock(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    destination = tmp_path / "control.json"
+    original_write_text = Path.write_text
+    locked_attempts = 0
+
+    def flaky_write_text(path: Path, *args: object, **kwargs: object) -> int:
+        nonlocal locked_attempts
+        if path.name == "control.json.tmp" and locked_attempts < 2:
+            locked_attempts += 1
+            raise PermissionError("simulated temporary file lock")
+        return original_write_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", flaky_write_text)
+
+    controller_module._atomic_json(destination, {"paused": False})
+
+    assert locked_attempts == 2
+    assert json.loads(destination.read_text(encoding="utf-8")) == {"paused": False}
+
+
 def test_read_json_file_returns_default_for_non_utf8_bytes(tmp_path: Path) -> None:
     path = tmp_path / "status.json"
     path.write_bytes(b"\xff\xfe\xfa")
