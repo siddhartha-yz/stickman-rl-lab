@@ -132,7 +132,7 @@ class DesktopTrainingController:
         self._stderr: deque[str] = deque(maxlen=200)
         self._threads: list[threading.Thread] = []
         self._log_lock = threading.RLock()
-        self._logged_exit_processes: set[int] = set()
+        self._handled_exit_processes: set[int] = set()
 
     @property
     def is_active(self) -> bool:
@@ -212,23 +212,22 @@ class DesktopTrainingController:
             raise RuntimeError(message) from exc
         process = self.process
         self._append_worker_log("controller", f"started pid={process.pid}", run_dir=run_dir)
-        self._threads = [
-            threading.Thread(
-                target=self._read_stdout,
-                args=(process, run_dir, event_queue),
-                daemon=True,
-            ),
-            threading.Thread(
-                target=self._read_stderr,
-                args=(process, run_dir, event_queue, stderr_buffer),
-                daemon=True,
-            ),
-            threading.Thread(
-                target=self._watch_process,
-                args=(process, run_dir),
-                daemon=True,
-            ),
-        ]
+        stdout_thread = threading.Thread(
+            target=self._read_stdout,
+            args=(process, run_dir, event_queue),
+            daemon=True,
+        )
+        stderr_thread = threading.Thread(
+            target=self._read_stderr,
+            args=(process, run_dir, event_queue, stderr_buffer),
+            daemon=True,
+        )
+        watcher_thread = threading.Thread(
+            target=self._watch_process,
+            args=(process, run_dir, event_queue, stderr_buffer, (stdout_thread, stderr_thread)),
+            daemon=True,
+        )
+        self._threads = [stdout_thread, stderr_thread, watcher_thread]
         for thread in self._threads:
             thread.start()
         return run_id
@@ -247,25 +246,54 @@ class DesktopTrainingController:
         with self._log_lock, (destination / "worker.log").open("a", encoding="utf-8") as handle:
             handle.write(f"[{timestamp}] {stream}: {text}\n")
 
-    def _record_process_exit(
+    def _handle_process_exit(
         self,
         process: subprocess.Popen[str],
         run_dir: Path,
+        event_queue: queue.Queue[dict[str, Any]],
+        stderr_buffer: deque[str],
         returncode: int,
     ) -> None:
         process_key = id(process)
         with self._log_lock:
-            if process_key in self._logged_exit_processes:
+            if process_key in self._handled_exit_processes:
                 return
-            self._logged_exit_processes.add(process_key)
+            self._handled_exit_processes.add(process_key)
         self._append_worker_log(
             "controller",
             f"process exited with code {returncode}",
             run_dir=run_dir,
         )
+        status_path = run_dir / "status.json"
+        status = read_json_file(status_path, {})
+        if status.get("state") in {"completed", "stopped", "failed"}:
+            return
+        failure = {
+            **status,
+            "state": "failed",
+            "error": (
+                f"Trainer process exited with code {returncode} "
+                "before publishing a terminal status"
+            ),
+            "process_exit_code": returncode,
+            "stderr_tail": list(stderr_buffer)[-20:],
+            "updated_at": datetime.now().isoformat(timespec="seconds"),
+        }
+        _atomic_json(status_path, failure)
+        event_queue.put({"type": "status", "payload": failure})
 
-    def _watch_process(self, process: subprocess.Popen[str], run_dir: Path) -> None:
-        self._record_process_exit(process, run_dir, process.wait())
+    def _watch_process(
+        self,
+        process: subprocess.Popen[str],
+        run_dir: Path,
+        event_queue: queue.Queue[dict[str, Any]],
+        stderr_buffer: deque[str],
+        reader_threads: tuple[threading.Thread, threading.Thread],
+    ) -> None:
+        returncode = process.wait()
+        for thread in reader_threads:
+            thread.join(timeout=1.0)
+        self._handle_process_exit(process, run_dir, event_queue, stderr_buffer, returncode)
 
     def _read_stdout(
         self,
@@ -359,7 +387,10 @@ class DesktopTrainingController:
         if run_dir is None:
             raise RuntimeError("No desktop training run directory is available")
         returncode = process.wait(timeout=timeout)
-        self._record_process_exit(process, run_dir, returncode)
+        for thread in self._threads:
+            if thread is not threading.current_thread():
+                thread.join(timeout=1.0)
+        self._handle_process_exit(process, run_dir, self._events, self._stderr, returncode)
         return returncode
 
     def stop_and_wait(self, timeout: float = 10.0) -> int:

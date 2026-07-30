@@ -587,6 +587,37 @@ Full Pytest: 45 passed
 
 Checkpoint commit: `f55aa25681f069f1b35595c8014acaaa3dd9c005`.
 
+### Goal: finalize unexpected trainer process exits as failed runs
+
+Acceptance criterion: if the child process exits before `live_train_worker.py` publishes `completed`, `stopped`, or `failed`, the controller must replace stale `starting`/`running` status with a durable failure containing the exit code and drained stderr tail, and emit that status to the current UI event queue.
+
+Observed baseline:
+
+- A fake worker printed `fatal import-style failure` to stderr and exited with code 7 before entering the worker's exception handler.
+- The process was dead and stderr was captured, but `status.json` remained `state=starting`, leaving the UI logically active forever.
+
+Implemented:
+
+- Add one per-process exit finalizer owned by the controller.
+- Wait briefly for stdout/stderr reader threads to drain before constructing failure diagnostics.
+- Preserve existing terminal worker statuses; otherwise write `failed`, `process_exit_code`, stderr tail, error text, and timestamp.
+- Push the synthesized failed status into the exact run's event queue.
+- Keep finalization idempotent when both the watcher and explicit `wait()` observe exit.
+
+Verification:
+
+```text
+Desktop controller tests: 9 passed
+Hard-exit reproduction: exit code 7
+Final state: failed
+Recorded process exit code: 7
+stderr tail preserved: fatal import-style failure
+Full Ruff: passed
+Full Pytest: 46 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
