@@ -6,13 +6,28 @@ from pathlib import Path
 
 import pytest
 
-from stickman_rl.desktop.app import format_number, format_percent, rotate_point, run_summaries
+from stickman_rl.desktop.app import (
+    format_number,
+    format_percent,
+    nonnegative_int,
+    rotate_point,
+    run_summaries,
+)
 
 
 def test_rotate_point_matches_quarter_turn() -> None:
     x, y = rotate_point([1.0, 0.0], math.pi / 2, [2.0, 3.0])
     assert math.isclose(x, 2.0, abs_tol=1e-8)
     assert math.isclose(y, 4.0, abs_tol=1e-8)
+
+
+def test_nonnegative_int_handles_persisted_status_values() -> None:
+    assert nonnegative_int(128) == 128
+    assert nonnegative_int("256") == 256
+    assert nonnegative_int(-5) == 0
+    assert nonnegative_int("not-an-int") == 0
+    assert nonnegative_int({"bad": 1}) == 0
+    assert nonnegative_int(float("inf")) == 0
 
 
 def test_desktop_formatters_handle_missing_values() -> None:
