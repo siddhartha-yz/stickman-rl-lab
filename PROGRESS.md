@@ -954,6 +954,70 @@ Full Pytest: 56 passed
 
 Checkpoint commit: `4cca3d91c04a0287072342345ef4b5cfc7bf18b0`.
 
+### Goal: downgrade malformed structured events before desktop delivery
+
+Acceptance criterion: JSON-valid worker output with a non-object top level, missing or invalid event type, or non-object payload must never terminate the reader thread or reach Tk state/frame handlers. Invalid events should become bounded diagnostic log entries while valid live state still coalesces normally.
+
+Observed baseline:
+
+- Passing a JSON list into `DesktopEventBuffer.put()` raised `AttributeError` because the buffer called `.get()` unconditionally.
+- A checkpoint event with a string payload reached `_handle_event()` and raised the same error on `payload.get()`.
+- One schema-invalid structured line could therefore kill the live stdout path or the Tk refresh callback despite being valid JSON.
+
+Implemented:
+
+- Add one event normalization boundary inside `DesktopEventBuffer`.
+- Accept only non-empty string event types with object payloads.
+- Convert malformed values into bounded controller diagnostic log events with a capped 500-character preview.
+- Preserve existing latest-value coalescing for metadata, status, metrics, frame, and checkpoint events.
+
+Verification:
+
+```text
+Desktop controller tests: 13 passed
+Malformed list before fix: AttributeError
+Malformed scalar payload before fix: AttributeError
+Valid status after fix: running
+Malformed events after fix: 2 diagnostic logs
+Full Ruff: passed
+Full Pytest: 57 passed
+```
+
+Checkpoint commit: `3c85f85bf5c7363d7db49832155ccd8bd59f3a70`.
+
+### Goal: normalize persisted controller JSON objects
+
+Acceptance criterion: JSON-valid but non-object request, status, control, metrics, frame, metadata, or last-save files must not raise from controller snapshot, process finalization, state waiting, or control paths. Wrong-shaped values should downgrade to safe defaults while active controls remain writable.
+
+Observed baseline:
+
+- A list-valued `frame.json` caused `snapshot()` to unpack a non-mapping and raise `TypeError`.
+- A string-valued `status.json` caused `control()` to call `.get()` and raise `AttributeError`.
+- A single legacy or corrupted run file could therefore break desktop refresh, control buttons, or exit finalization.
+
+Implemented:
+
+- Add one `read_json_object()` boundary on top of the existing lock/JSON retry reader.
+- Use object-only reads for process exit status, controls, request/status/metrics snapshots, frame/metadata merge, and last-save data.
+- Downgrade invalid optional objects to `None` and required objects to fresh default dictionaries.
+- Preserve explicit inactive-run rejection and recover list-valued control files to the standard control object.
+
+Verification:
+
+```text
+Desktop controller tests: 14 passed
+Non-object snapshot baseline: TypeError
+Non-object control baseline: AttributeError
+Normalized request/status: {}
+Normalized metrics: empty episode/update lists
+Normalized frame/last-save: None
+Recovered active control: paused=true
+Full Ruff: passed
+Full Pytest: 58 passed
+```
+
+Checkpoint commit: `0b83af4970b9857d7ad7f646897b6ebb155464a1`.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`

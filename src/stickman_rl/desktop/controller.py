@@ -30,13 +30,32 @@ class DesktopEventBuffer:
         self._pending: deque[dict[str, Any]] = deque(maxlen=max_pending)
         self._lock = threading.Lock()
 
-    def put(self, event: dict[str, Any]) -> None:
-        event_type = str(event.get("type", ""))
+    @staticmethod
+    def _normalized(event: Any) -> dict[str, Any]:
+        if isinstance(event, dict):
+            event_type = event.get("type")
+            payload = event.get("payload")
+            if isinstance(event_type, str) and event_type and isinstance(payload, dict):
+                return event
+        preview = repr(event)
+        if len(preview) > 500:
+            preview = preview[:497] + "..."
+        return {
+            "type": "log",
+            "payload": {
+                "stream": "controller",
+                "text": f"Ignored malformed structured event: {preview}",
+            },
+        }
+
+    def put(self, event: Any) -> None:
+        normalized = self._normalized(event)
+        event_type = normalized["type"]
         with self._lock:
             if event_type in LATEST_EVENT_ORDER:
-                self._latest[event_type] = event
+                self._latest[event_type] = normalized
             else:
-                self._pending.append(event)
+                self._pending.append(normalized)
 
     def drain(self, max_items: int = 500) -> list[dict[str, Any]]:
         if max_items <= 0:
@@ -87,6 +106,16 @@ def read_json_file(path: Path, default: Any = None) -> Any:
                 return default
             time.sleep(0.005)
     return default
+
+
+def read_json_object(
+    path: Path,
+    default: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    value = read_json_file(path, default)
+    if isinstance(value, dict):
+        return value
+    return dict(default) if default is not None else None
 
 
 def _validated_config(value: str | None, *, training: bool) -> str | None:
@@ -334,7 +363,7 @@ class DesktopTrainingController:
             run_dir=run_dir,
         )
         status_path = run_dir / "status.json"
-        status = read_json_file(status_path, {})
+        status = read_json_object(status_path, {}) or {}
         if status.get("state") in {"completed", "stopped", "failed"}:
             return
         failure = {
@@ -406,11 +435,14 @@ class DesktopTrainingController:
     def control(self, action: ControlAction) -> dict[str, Any]:
         if self.run_dir is None:
             raise RuntimeError("No desktop training run has been started")
-        status = read_json_file(self.run_dir / "status.json", {})
+        status = read_json_object(self.run_dir / "status.json", {}) or {}
         if status.get("state") not in ACTIVE_STATES:
             raise RuntimeError(f"Run is already {status.get('state', 'inactive')}")
         control_path = self.run_dir / "control.json"
-        control = read_json_file(control_path, {"paused": False, "stop": False, "save_request": None})
+        control = read_json_object(
+            control_path,
+            {"paused": False, "stop": False, "save_request": None},
+        ) or {"paused": False, "stop": False, "save_request": None}
         if action == "pause":
             control["paused"] = True
         elif action == "resume":
@@ -428,17 +460,21 @@ class DesktopTrainingController:
     def snapshot(self) -> dict[str, Any]:
         if self.run_dir is None:
             return {}
-        frame = read_json_file(self.run_dir / "frame.json")
-        metadata = read_json_file(self.run_dir / "metadata.json")
+        frame = read_json_object(self.run_dir / "frame.json")
+        metadata = read_json_object(self.run_dir / "metadata.json")
         if frame is not None and metadata is not None and "metadata" not in frame:
             frame = {"metadata": metadata, **frame}
         return {
             "run_id": self.run_id,
-            "request": read_json_file(self.run_dir / "request.json", {}),
-            "status": read_json_file(self.run_dir / "status.json", {}),
-            "metrics": read_json_file(self.run_dir / "metrics.json", {"episodes": [], "updates": []}),
+            "request": read_json_object(self.run_dir / "request.json", {}) or {},
+            "status": read_json_object(self.run_dir / "status.json", {}) or {},
+            "metrics": read_json_object(
+                self.run_dir / "metrics.json",
+                {"episodes": [], "updates": []},
+            )
+            or {"episodes": [], "updates": []},
             "frame": frame,
-            "last_save": read_json_file(self.run_dir / "last_save.json"),
+            "last_save": read_json_object(self.run_dir / "last_save.json"),
             "stderr": list(self._stderr),
         }
 
