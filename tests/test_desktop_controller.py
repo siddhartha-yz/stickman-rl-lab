@@ -426,7 +426,48 @@ def test_stop_and_wait_handles_terminal_status_before_process_exit(
 
     assert controller.stop_and_wait(timeout=5.0) == 0
     assert not controller.is_active
-    assert "stop command skipped while process exits" in (controller.run_dir / "worker.log").read_text(  # type: ignore[operator]
+    assert "stop command unavailable during cleanup" in (controller.run_dir / "worker.log").read_text(  # type: ignore[operator]
+        encoding="utf-8"
+    )
+
+
+def test_stop_and_wait_terminates_when_control_write_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_root = tmp_path / "project"
+    (project_root / "configs").mkdir(parents=True)
+    (project_root / "configs" / "train_fake.yaml").write_text("placeholder: true\n", encoding="utf-8")
+    scripts_dir = project_root / "scripts"
+    scripts_dir.mkdir()
+    (scripts_dir / "live_train_worker.py").write_text(
+        "import time\n"
+        "time.sleep(30)\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(controller_module, "PROJECT_ROOT", project_root)
+
+    controller = DesktopTrainingController(
+        runs_root=tmp_path / "runs",
+        python_executable=sys.executable,
+    )
+    controller.start(
+        TrainingRequest(stage=1, timesteps=64, seed=15, train_config="configs/train_fake.yaml")
+    )
+    original_atomic = controller_module._atomic_json
+
+    def fail_control_write(path: Path, payload: object) -> None:
+        if path.name == "control.json":
+            raise PermissionError("simulated persistent control lock")
+        original_atomic(path, payload)
+
+    monkeypatch.setattr(controller_module, "_atomic_json", fail_control_write)
+
+    exit_code = controller.stop_and_wait(timeout=0.05)
+
+    assert isinstance(exit_code, int)
+    assert not controller.is_active
+    assert "simulated persistent control lock" in (controller.run_dir / "worker.log").read_text(  # type: ignore[operator]
         encoding="utf-8"
     )
 
@@ -469,6 +510,54 @@ def test_unexpected_process_exit_marks_run_failed(
         for event in controller.drain_events()
     )
     assert "process exited with code 7" in (controller.run_dir / "worker.log").read_text(  # type: ignore[operator]
+        encoding="utf-8"
+    )
+
+
+def test_exit_failure_remains_visible_when_status_write_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_dir = tmp_path / "desktop-failing-exit"
+    run_dir.mkdir()
+    status_path = run_dir / "status.json"
+    status_path.write_text(
+        json.dumps({"state": "running", "num_timesteps": 32}),
+        encoding="utf-8",
+    )
+    controller = DesktopTrainingController(runs_root=tmp_path)
+    controller.run_id = run_dir.name
+    controller.run_dir = run_dir
+    controller._stderr.append("fatal stderr")
+    events = DesktopEventBuffer()
+    process = object()
+    original_atomic = controller_module._atomic_json
+
+    def fail_status_write(path: Path, payload: object) -> None:
+        if path == status_path:
+            raise PermissionError("simulated terminal status lock")
+        original_atomic(path, payload)
+
+    monkeypatch.setattr(controller_module, "_atomic_json", fail_status_write)
+
+    controller._handle_process_exit(  # type: ignore[arg-type]
+        process,
+        run_dir,
+        events,
+        controller._stderr,
+        7,
+    )
+
+    drained = events.drain()
+    assert len(drained) == 1
+    failure = drained[0]["payload"]
+    assert failure["state"] == "failed"
+    assert failure["process_exit_code"] == 7
+    assert "simulated terminal status lock" in failure["status_persist_error"]
+    assert controller.snapshot()["status"] == failure
+    assert json.loads(status_path.read_text(encoding="utf-8"))["state"] == "running"
+    assert id(process) in controller._handled_exit_processes
+    assert "unable to persist terminal status" in (run_dir / "worker.log").read_text(
         encoding="utf-8"
     )
 

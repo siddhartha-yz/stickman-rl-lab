@@ -1018,6 +1018,72 @@ Full Pytest: 58 passed
 
 Checkpoint commit: `0b83af4970b9857d7ad7f646897b6ebb155464a1`.
 
+### Goal: finish close cleanup when control writes fail
+
+Acceptance criterion: closing the desktop app must still execute the existing bounded wait, terminate, and kill sequence if writing the stop command raises an `OSError`. The control failure should be diagnostic, not an escape path that leaves the trainer alive.
+
+Observed baseline:
+
+- A real long-lived fake worker was started through `DesktopTrainingController`.
+- Injecting a persistent `PermissionError` for `control.json` made `stop_and_wait()` raise immediately.
+- The child process remained active because cleanup never reached its timeout and termination fallback.
+
+Implemented:
+
+- Catch both `RuntimeError` state races and `OSError` control-write failures around the stop request.
+- Record a general cleanup diagnostic rather than assuming the process is already exiting.
+- Continue through the unchanged bounded wait, terminate, and kill sequence.
+- Add a real child-process regression test with a persistently locked control write.
+
+Verification:
+
+```text
+Desktop controller tests: 15 passed
+Locked control baseline: PermissionError escaped
+Process active after baseline error: true
+stop_and_wait after fix: exit code 1
+Process active after cleanup: false
+Control failure diagnostic persisted: true
+Full Ruff: passed
+Full Pytest: 59 passed
+```
+
+Checkpoint commit: `59c0deb70b3356e64c2fd533b3cc16093263b90b`.
+
+### Goal: keep terminal failure visible when status persistence fails
+
+Acceptance criterion: if an unexpected process exit cannot persist its failed status to `status.json`, the exit finalizer must not raise or lose the event. The current UI snapshot must continue exposing the terminal failure instead of being overwritten by the stale disk state.
+
+Observed baseline:
+
+- A temporary current run had durable `state=running` and 32 timesteps.
+- Injecting a persistent `PermissionError` for terminal status writes made `_handle_process_exit()` raise.
+- No event was queued, the process was already marked handled, and disk remained `running`, so the UI could stay logically active forever.
+
+Implemented:
+
+- Add a per-current-run in-memory terminal status fallback and clear it when a new run starts.
+- Cache existing completed/stopped/failed states observed during process finalization.
+- Treat terminal status write failures as diagnostic-only, attach the persistence error, and always publish the failed event.
+- Make `snapshot()` prefer the in-memory terminal state for the matching current run, preventing stale disk state from overwriting UI failure.
+
+Verification:
+
+```text
+Desktop controller tests: 16 passed
+Terminal write baseline: PermissionError escaped
+Baseline queued events: 0
+Failed event after fix: 1
+Event state: failed
+Snapshot state: failed
+Stale disk state retained for reproduction: running
+Persistence diagnostic recorded: true
+Full Ruff: passed
+Full Pytest: 60 passed
+```
+
+Checkpoint commit: `1e99836b9bf6c5f305034fc8e0b1013ce1d52d95`.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
