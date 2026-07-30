@@ -802,6 +802,36 @@ Full Pytest: 52 passed
 
 Checkpoint commit: `a100b7df7fa20273ee9098ee1abba27a73ad9fee`.
 
+### Goal: reject non-object persisted run JSON safely
+
+Acceptance criterion: valid JSON with the wrong top-level shape must not crash desktop history or history-detail loading. request/status/metrics payloads must be normalized to objects before any `.get()` access.
+
+Observed baseline:
+
+- A run with list-valued `request.json` and string-valued `status.json` parsed successfully.
+- `run_summaries()` then called `.get()` on the string and raised `AttributeError`.
+- One malformed legacy run could therefore prevent the desktop interface from opening its history panel.
+
+Implemented:
+
+- Add one shared `_json_object()` boundary that accepts dictionaries and downgrades all other JSON values to `{}`.
+- Apply the same normalization in run summaries and selected-run status/metrics loading.
+- Skip unusable history details without altering other valid runs.
+
+Verification:
+
+```text
+Desktop app tests: 6 passed
+Non-object baseline: AttributeError
+Non-object after fix: 1 summary returned
+Normalized request: {}
+Normalized status: {}
+Full Ruff: passed
+Full Pytest: 53 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
