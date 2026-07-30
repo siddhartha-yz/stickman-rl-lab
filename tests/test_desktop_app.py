@@ -4,6 +4,8 @@ import json
 import math
 from pathlib import Path
 
+import pytest
+
 from stickman_rl.desktop.app import format_number, format_percent, rotate_point, run_summaries
 
 
@@ -40,3 +42,33 @@ def test_run_summaries_sorts_latest_first(tmp_path: Path) -> None:
 
     assert [item["run_id"] for item in items] == ["desktop-newer", "desktop-older"]
     assert items[0]["request"]["stage"] == 3
+
+
+def test_run_summaries_retries_locked_status_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_dir = tmp_path / "desktop-locked"
+    run_dir.mkdir()
+    (run_dir / "request.json").write_text(json.dumps({"stage": 2}), encoding="utf-8")
+    status_path = run_dir / "status.json"
+    status_path.write_text(
+        json.dumps({"state": "running", "updated_at": "2026-07-30T12:00:00"}),
+        encoding="utf-8",
+    )
+    original_read_text = Path.read_text
+    attempts = 0
+
+    def flaky_read_text(path: Path, *args: object, **kwargs: object) -> str:
+        nonlocal attempts
+        if path == status_path and attempts < 2:
+            attempts += 1
+            raise PermissionError("temporary sharing lock")
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", flaky_read_text)
+
+    items = run_summaries(tmp_path)
+
+    assert attempts == 2
+    assert items[0]["status"]["state"] == "running"

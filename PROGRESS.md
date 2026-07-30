@@ -448,6 +448,30 @@ Full Pytest: 39 passed
 
 Checkpoint commit: `9764b7482c8cc2f351ba087a53689337e810e789`.
 
+### Goal: use one resilient JSON reader across the desktop UI
+
+Acceptance criterion: refreshing or selecting desktop run history while a worker atomically updates `status.json`/`metrics.json` must not raise `PermissionError`, and the UI must use the same tested retry semantics as the controller instead of duplicate direct reads.
+
+Implemented:
+
+- Exposed one `read_json_file()` helper with bounded retries for transient sharing locks and JSON replacement windows.
+- Replaced direct `Path.read_text()` calls in run-history summaries and history selection with the shared helper.
+- Retained immediate default behavior for legitimately absent optional files, avoiding unnecessary polling delays.
+- Added a deterministic history regression test that injects two `PermissionError` failures before a successful status read.
+
+Verification:
+
+```text
+Desktop app + controller tests: 10 passed
+Live concurrent history stress: 2,478 reads during PPO training
+Stress worker exit code: 0
+Stress final state: stopped
+Full Ruff: passed
+Full Pytest: 40 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
