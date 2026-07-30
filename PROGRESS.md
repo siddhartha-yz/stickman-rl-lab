@@ -892,6 +892,37 @@ Full Pytest: 54 passed
 
 Checkpoint commit: `e76d87bb47a782754e8d71b650d8048fad3a5758`.
 
+### Goal: tolerate invalid integer state values in desktop refresh
+
+Acceptance criterion: malformed persisted or streamed timestep, episode, and waypoint integer values must not raise from the Tk refresh or physics-frame paths. Invalid and negative values should degrade to a non-negative default while valid integers remain unchanged.
+
+Observed baseline:
+
+- A minimal real `_refresh_ui()` call with object-valued `total_timesteps` raised `TypeError`.
+- Direct `int()` conversions were also used for frame episode and active waypoint indices.
+- One damaged status or frame payload could therefore stop subsequent desktop updates.
+
+Implemented:
+
+- Add one tested `nonnegative_int()` conversion boundary.
+- Catch overflow, type, and value conversion errors and clamp negative results to zero.
+- Apply the boundary to total/current timesteps, frame episode, and active waypoint index.
+- Leave user form parsing strict so invalid launch input still produces a visible validation error.
+
+Verification:
+
+```text
+Desktop app tests: 7 passed
+Damaged status baseline: TypeError
+Full _refresh_ui() with damaged timesteps after fix: completed
+Valid integer/string conversion: 128 / 256
+Invalid object, text, infinity, and negative values: 0
+Full Ruff: passed
+Full Pytest: 55 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
