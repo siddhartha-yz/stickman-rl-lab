@@ -1409,6 +1409,41 @@ Full Pytest: 73 passed
 
 Checkpoint commit: `bf0f01bebf304f231b057bedefb509a9402ad03c`.
 
+
+### Goal: normalize body geometry before physics rendering
+
+Acceptance criterion: malformed per-body circle, segment, polygon, or non-object geometry must not terminate `PhysicsCanvas.redraw()`. Invalid geometry for one body should be skipped while valid bodies remain renderable.
+
+Observed baseline:
+
+- Non-object geometry raised `TypeError`.
+- A circle without radius raised `KeyError`.
+- A segment with a short endpoint raised `ValueError`.
+- A polygon with a non-numeric vertex raised `TypeError`.
+
+Implemented:
+
+- Add one `normalize_body_geometry()` boundary for the renderer's supported circle, segment, and polygon kinds.
+- Require circles to have a positive finite radius and a finite two-coordinate offset.
+- Require segments to have two finite endpoints and a non-negative finite radius.
+- Require polygons to have at least three finite two-coordinate vertices.
+- Drop unsupported or malformed single-body geometry without affecting other body state arrays.
+- Convert valid numeric strings into finite floats.
+
+Verification:
+
+```text
+Desktop app tests: 21 passed
+Four malformed geometry cases before fix: TypeError, KeyError, or ValueError
+Four malformed geometry redraws after fix: completed
+Malformed geometry result: body entry omitted
+Valid circle/segment/polygon normalization: passed
+Full Ruff: passed
+Full Pytest: 74 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`

@@ -16,6 +16,7 @@ from stickman_rl.desktop.app import (
     format_percent,
     metric_records,
     nonnegative_int,
+    normalize_body_geometry,
     normalize_frame_payload,
     normalize_metadata_payload,
     rotate_point,
@@ -49,6 +50,84 @@ def test_metadata_payload_normalizes_name_arrays() -> None:
     )
     assert canvas.metadata["body_names"] == ["body_0"]
     assert canvas.metadata["action_names"] == ["action_0"]
+
+
+def test_metadata_payload_normalizes_body_geometry() -> None:
+    geometry = normalize_body_geometry(
+        {
+            "non_object": "bad",
+            "circle_bad": {"kind": "circle", "offset": [0, 0]},
+            "segment_bad": {"kind": "segment", "a": [0], "b": [1, 0], "radius": 0.1},
+            "polygon_bad": {
+                "kind": "polygon",
+                "vertices": [[0, 0], ["bad", 1], [1, 0]],
+            },
+            "circle": {"kind": "circle", "radius": "0.25", "offset": [0, "0.1"]},
+            "segment": {
+                "kind": "segment",
+                "a": [0, 0],
+                "b": ["1", 0],
+                "radius": "0.05",
+            },
+            "polygon": {
+                "kind": "polygon",
+                "vertices": [[0, 0], ["1", 0], [0, "1"]],
+            },
+        }
+    )
+    assert set(geometry) == {"circle", "segment", "polygon"}
+    assert geometry["circle"] == {
+        "kind": "circle",
+        "radius": 0.25,
+        "offset": [0.0, 0.1],
+    }
+    assert geometry["segment"] == {
+        "kind": "segment",
+        "a": [0.0, 0.0],
+        "b": [1.0, 0.0],
+        "radius": 0.05,
+    }
+    assert geometry["polygon"]["vertices"] == [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]]
+
+    canvas = PhysicsCanvas.__new__(PhysicsCanvas)
+    canvas.metadata = normalize_metadata_payload(
+        {
+            "room": {"width": 12, "height": 7},
+            "target": {"position": [9.5, 0.55], "size": [0.8, 0.9]},
+            "body_names": ["non_object", "circle_bad", "segment_bad", "polygon_bad"],
+            "body_geometry": {
+                "non_object": "bad",
+                "circle_bad": {"kind": "circle", "offset": [0, 0]},
+                "segment_bad": {"kind": "segment", "a": [0], "b": [1, 0], "radius": 0.1},
+                "polygon_bad": {
+                    "kind": "polygon",
+                    "vertices": [[0, 0], ["bad", 1], [1, 0]],
+                },
+            },
+        }
+    )
+    canvas.frame = normalize_frame_payload(
+        {
+            "frame": {
+                "body_positions": [[2, 1], [3, 1], [4, 1], [5, 1]],
+                "body_angles": [0.0, 0.1, 0.2, 0.3],
+                "info": {},
+            }
+        }
+    )
+    canvas.trail = deque(maxlen=140)
+    canvas.winfo_width = lambda: 800
+    canvas.winfo_height = lambda: 500
+    for name in (
+        "delete",
+        "create_text",
+        "create_line",
+        "create_rectangle",
+        "create_oval",
+        "create_polygon",
+    ):
+        setattr(canvas, name, lambda *args, **kwargs: None)
+    PhysicsCanvas.redraw(canvas)
 
 
 def test_metadata_payload_normalizes_room_dimensions() -> None:
