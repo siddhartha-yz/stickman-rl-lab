@@ -1377,6 +1377,38 @@ Full Pytest: 72 passed
 
 Checkpoint commit: `315386009bbdc253592b4ec868ee6281dfb2b093`.
 
+
+### Goal: normalize waypoint metadata before physics rendering
+
+Acceptance criterion: non-list waypoint containers, null entries, short arrays, and non-finite coordinates must not raise from `PhysicsCanvas.redraw()`. Valid two-coordinate waypoints must retain order.
+
+Observed baseline:
+
+- String-valued waypoint containers and non-numeric coordinates raised `TypeError` inside the canvas transform.
+- Null entries raised `TypeError`.
+- A one-coordinate waypoint raised `IndexError`.
+
+Implemented:
+
+- Accept only list-valued waypoint containers.
+- Convert each waypoint through the existing strict finite two-coordinate boundary.
+- Skip malformed entries instead of terminating the renderer.
+- Preserve valid waypoint order and numeric-string conversion.
+
+Verification:
+
+```text
+Desktop app tests: 20 passed
+Four malformed waypoint cases before fix: TypeError or IndexError
+Four malformed waypoint redraws after fix: completed
+Malformed waypoint result: empty list
+Valid numeric-string waypoint preserved: [3.0, 4.0]
+Full Ruff: passed
+Full Pytest: 73 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`

@@ -162,6 +162,12 @@ def normalize_metadata_payload(value: Any) -> dict[str, Any]:
             obstacle["size"] = size
         obstacles.append(obstacle)
     payload["obstacles"] = obstacles
+    waypoints: list[list[float]] = []
+    for value in _json_list(payload.get("waypoints")):
+        waypoint = finite_point(value)
+        if waypoint is not None:
+            waypoints.append(waypoint)
+    payload["waypoints"] = waypoints
     for field, prefix in (("action_names", "action"), ("body_names", "body")):
         names: list[str] = []
         for index, name in enumerate(_json_list(payload.get(field))):

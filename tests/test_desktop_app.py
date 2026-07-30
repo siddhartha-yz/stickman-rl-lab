@@ -155,6 +155,40 @@ def test_metadata_payload_normalizes_obstacles_before_redraw() -> None:
     PhysicsCanvas.redraw(canvas)
 
 
+def test_metadata_payload_normalizes_waypoints_before_redraw() -> None:
+    assert normalize_metadata_payload({"waypoints": "bad"})["waypoints"] == []
+    normalized = normalize_metadata_payload(
+        {
+            "room": {"width": 12, "height": 7},
+            "target": {"position": [9.5, 0.55], "size": [0.8, 0.9]},
+            "obstacles": [],
+            "waypoints": [None, [2], ["bad", 1], ["3", 4]],
+            "body_names": [],
+            "body_geometry": {},
+        }
+    )
+    assert normalized["waypoints"] == [[3.0, 4.0]]
+
+    canvas = PhysicsCanvas.__new__(PhysicsCanvas)
+    canvas.metadata = normalized
+    canvas.frame = normalize_frame_payload(
+        {"frame": {"body_positions": [], "body_angles": [], "info": {}}}
+    )
+    canvas.trail = deque(maxlen=140)
+    canvas.winfo_width = lambda: 800
+    canvas.winfo_height = lambda: 500
+    for name in (
+        "delete",
+        "create_text",
+        "create_line",
+        "create_rectangle",
+        "create_oval",
+        "create_polygon",
+    ):
+        setattr(canvas, name, lambda *args, **kwargs: None)
+    PhysicsCanvas.redraw(canvas)
+
+
 def test_finite_point_distinguishes_strict_and_fill_missing_modes() -> None:
     assert finite_point([1.0, "2.0"]) == [1.0, 2.0]
     assert finite_point([1.0]) is None
