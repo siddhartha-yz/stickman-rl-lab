@@ -136,6 +136,34 @@ def test_failure_status_preserves_last_durable_progress(tmp_path: Path) -> None:
     assert payload["traceback"] == "traceback text"
 
 
+def test_failure_status_retries_transient_status_lock(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    status_path = tmp_path / "status.json"
+    status_path.write_text(
+        json.dumps({"state": "running", "num_timesteps": 512, "episode": 4}),
+        encoding="utf-8",
+    )
+    original_read_text = Path.read_text
+    attempts = 0
+
+    def flaky_read_text(path: Path, *args: object, **kwargs: object) -> str:
+        nonlocal attempts
+        if path == status_path and attempts < 2:
+            attempts += 1
+            raise PermissionError("temporary sharing lock")
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", flaky_read_text)
+
+    payload = build_failure_status(tmp_path, RuntimeError("boom"), "traceback text")
+
+    assert attempts == 2
+    assert payload["num_timesteps"] == 512
+    assert payload["episode"] == 4
+
+
 def test_failure_status_defaults_to_zero_without_valid_status(tmp_path: Path) -> None:
     (tmp_path / "status.json").write_text("not json", encoding="utf-8")
 
