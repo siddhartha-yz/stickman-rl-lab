@@ -1648,6 +1648,39 @@ Full Pytest: 83 passed
 
 Checkpoint commit: `d2562e2bbdb8c7cde7e0d8dd26a255de7227e43b`.
 
+
+### Goal: keep PPO training alive when status snapshots fail
+
+Acceptance criterion: a persistent `status.json` write lock must not terminate the PPO callback or suppress live state events. Critical start/stop/end transitions must force a retry, and a later successful write must clear the recorded persistence error.
+
+Observed baseline:
+
+- `atomic_json()` already retried short Windows sharing locks for about 100 ms.
+- A persistent lock still made `_write_status()` raise `PermissionError` before emitting the stdout status event.
+- The callback could therefore terminate even though live transport and the training process were otherwise healthy.
+
+Implemented:
+
+- Track `status_snapshot_error` and a one-second retry deadline in the callback.
+- Keep status persistence best-effort while always emitting the current live status payload.
+- Emit one bounded diagnostic log when a disk write fails.
+- Force disk retries on training start, stop requests, and training end.
+- Clear the error and retry deadline after a successful persistence attempt.
+
+Verification:
+
+```text
+Worker tests: 15 passed
+Persistent status lock baseline: PermissionError
+Failure after fix: status event + log event, retry scheduled
+Forced retry after fix: status.json created
+Recovered status_snapshot_error: None
+Full Ruff: passed
+Full Pytest: 84 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
