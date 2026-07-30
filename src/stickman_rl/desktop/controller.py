@@ -30,13 +30,32 @@ class DesktopEventBuffer:
         self._pending: deque[dict[str, Any]] = deque(maxlen=max_pending)
         self._lock = threading.Lock()
 
-    def put(self, event: dict[str, Any]) -> None:
-        event_type = str(event.get("type", ""))
+    @staticmethod
+    def _normalized(event: Any) -> dict[str, Any]:
+        if isinstance(event, dict):
+            event_type = event.get("type")
+            payload = event.get("payload")
+            if isinstance(event_type, str) and event_type and isinstance(payload, dict):
+                return event
+        preview = repr(event)
+        if len(preview) > 500:
+            preview = preview[:497] + "..."
+        return {
+            "type": "log",
+            "payload": {
+                "stream": "controller",
+                "text": f"Ignored malformed structured event: {preview}",
+            },
+        }
+
+    def put(self, event: Any) -> None:
+        normalized = self._normalized(event)
+        event_type = normalized["type"]
         with self._lock:
             if event_type in LATEST_EVENT_ORDER:
-                self._latest[event_type] = event
+                self._latest[event_type] = normalized
             else:
-                self._pending.append(event)
+                self._pending.append(normalized)
 
     def drain(self, max_items: int = 500) -> list[dict[str, Any]]:
         if max_items <= 0:

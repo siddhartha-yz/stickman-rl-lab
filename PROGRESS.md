@@ -954,6 +954,37 @@ Full Pytest: 56 passed
 
 Checkpoint commit: `4cca3d91c04a0287072342345ef4b5cfc7bf18b0`.
 
+### Goal: downgrade malformed structured events before desktop delivery
+
+Acceptance criterion: JSON-valid worker output with a non-object top level, missing or invalid event type, or non-object payload must never terminate the reader thread or reach Tk state/frame handlers. Invalid events should become bounded diagnostic log entries while valid live state still coalesces normally.
+
+Observed baseline:
+
+- Passing a JSON list into `DesktopEventBuffer.put()` raised `AttributeError` because the buffer called `.get()` unconditionally.
+- A checkpoint event with a string payload reached `_handle_event()` and raised the same error on `payload.get()`.
+- One schema-invalid structured line could therefore kill the live stdout path or the Tk refresh callback despite being valid JSON.
+
+Implemented:
+
+- Add one event normalization boundary inside `DesktopEventBuffer`.
+- Accept only non-empty string event types with object payloads.
+- Convert malformed values into bounded controller diagnostic log events with a capped 500-character preview.
+- Preserve existing latest-value coalescing for metadata, status, metrics, frame, and checkpoint events.
+
+Verification:
+
+```text
+Desktop controller tests: 13 passed
+Malformed list before fix: AttributeError
+Malformed scalar payload before fix: AttributeError
+Valid status after fix: running
+Malformed events after fix: 2 diagnostic logs
+Full Ruff: passed
+Full Pytest: 57 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
