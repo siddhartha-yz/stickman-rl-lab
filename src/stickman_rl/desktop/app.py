@@ -59,6 +59,28 @@ def rotate_point(point: list[float], angle: float, position: list[float]) -> tup
     )
 
 
+def finite_float(value: Any) -> float | None:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if math.isfinite(parsed) else None
+
+
+def metric_records(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
+def nonnegative_int(value: Any, default: int = 0) -> int:
+    try:
+        parsed = int(value)
+    except (OverflowError, TypeError, ValueError):
+        return default
+    return max(0, parsed)
+
+
 def format_number(value: Any, digits: int = 2) -> str:
     if value is None:
         return "—"
@@ -71,7 +93,10 @@ def format_number(value: Any, digits: int = 2) -> str:
 def format_percent(value: Any) -> str:
     if value is None:
         return "—"
-    return f"{float(value) * 100:.1f}%"
+    try:
+        return f"{float(value) * 100:.1f}%"
+    except (TypeError, ValueError):
+        return "—"
 
 
 def _json_object(value: Any) -> dict[str, Any]:
@@ -126,7 +151,7 @@ class Sparkline(tk.Canvas):
         self.bind("<Configure>", lambda _event: self.redraw())
 
     def set_values(self, values: list[Any]) -> None:
-        self.values = [float(value) for value in values if value is not None]
+        self.values = [parsed for value in values if (parsed := finite_float(value)) is not None]
         self.redraw()
 
     def redraw(self) -> None:
@@ -185,7 +210,7 @@ class PhysicsCanvas(tk.Canvas):
 
     def set_frame(self, frame: dict[str, Any]) -> None:
         self.frame = frame
-        episode = int(frame.get("training", {}).get("episode", 0))
+        episode = nonnegative_int(frame.get("training", {}).get("episode", 0))
         if self.last_episode is not None and episode != self.last_episode:
             self.trail.clear()
         self.last_episode = episode
@@ -271,7 +296,7 @@ class PhysicsCanvas(tk.Canvas):
             width=2,
         )
 
-        active_waypoint = int(frame.get("active_waypoint_index", 0))
+        active_waypoint = nonnegative_int(frame.get("active_waypoint_index", 0))
         for index, waypoint in enumerate(self.metadata.get("waypoints", [])):
             x, y = point(waypoint)
             color = COLORS["green"] if index < active_waypoint else COLORS["orange"] if index == active_waypoint else "#64748b"
@@ -623,8 +648,10 @@ class DesktopLabApp:
         state = self.status.get("state", "idle")
         color = COLORS["green"] if state == "running" else COLORS["orange"] if state in {"starting", "paused", "saving", "stopping"} else COLORS["red"] if state == "failed" else COLORS["muted"]
         self.status_label.configure(text=f"● {STATUS_LABELS.get(state, state)}", foreground=color)
-        total = int(self.status.get("total_timesteps") or self.status.get("timesteps") or 0)
-        current = int(self.status.get("num_timesteps") or 0)
+        total = nonnegative_int(
+            self.status.get("total_timesteps") or self.status.get("timesteps") or 0
+        )
+        current = nonnegative_int(self.status.get("num_timesteps") or 0)
         percent = current / max(1, total) * 100
         self.progress.configure(value=min(100, percent))
         self.progress_text.configure(text=f"{current:,} / {total:,} · {format_number(self.status.get('fps'), 1)} steps/s")
@@ -633,8 +660,8 @@ class DesktopLabApp:
         self.metric_success.set(format_percent(self.status.get("rolling_success_rate")), f"完成 {self.status.get('completed_episodes', 0)} episodes")
         self.metric_distance.set(format_number(self.status.get("rolling_final_distance"), 3), "rolling final distance")
 
-        episodes = self.metrics.get("episodes", [])
-        updates = self.metrics.get("updates", [])
+        episodes = metric_records(self.metrics.get("episodes", []))
+        updates = metric_records(self.metrics.get("updates", []))
         self.reward_chart.set_values([item.get("reward") for item in episodes])
         rolling: list[float] = []
         successes: list[float] = []

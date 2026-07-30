@@ -832,6 +832,128 @@ Full Pytest: 53 passed
 
 Checkpoint commit: `bc090b250cc9d7c597fa9e9a35ea9fd3aba9115b`.
 
+### Goal: tolerate invalid percentage metrics in desktop refresh
+
+Acceptance criterion: malformed persisted or streamed success-rate values must not raise from the Tk refresh loop. Invalid values should render as the same em-dash placeholder used for missing numeric metrics, while valid percentages remain unchanged.
+
+Observed baseline:
+
+- `format_percent("not-a-number")` raised `ValueError`.
+- `format_percent({"bad": 1})` raised `TypeError`.
+- `_refresh_ui()` calls this function every tick for `rolling_success_rate`, so one bad value could stop all subsequent desktop updates.
+
+Implemented:
+
+- Match `format_number()` error handling by catching conversion `TypeError` and `ValueError`.
+- Return `—` for invalid percentage inputs without changing valid output formatting.
+- Add regression assertions for both string and object inputs.
+
+Verification:
+
+```text
+Desktop app tests: 6 passed
+Invalid string before fix: ValueError
+Invalid object before fix: TypeError
+Invalid string/object after fix: —
+Valid 0.625 after fix: 62.5%
+Full Ruff: passed
+Full Pytest: 53 passed
+```
+
+Checkpoint commit: `5db8520a0e77dfdbcd38728dfc6fd8a71ed9b6f7`.
+
+### Goal: bound in-memory training metric history
+
+Acceptance criterion: long-running training must retain only the same recent metric window that is persisted to `metrics.json`; episode and PPO-update histories must not grow without bound in memory.
+
+Observed baseline:
+
+- `episodes` and `updates` were ordinary lists.
+- Appending 20,000 entries left all 20,000 resident in memory, even though `_write_metrics()` sliced only the latest 500 for disk output.
+- Multi-hour or multi-day runs would therefore accumulate historical dictionaries indefinitely.
+
+Implemented:
+
+- Define one `METRIC_HISTORY_LIMIT = 500` constant.
+- Store episode and update histories in `deque(maxlen=500)` containers.
+- Persist the full bounded deques directly, keeping memory and disk retention semantics identical.
+- Add a 20,000-entry pressure regression that verifies both ends of the retained window.
+
+Verification:
+
+```text
+Worker reliability tests: 8 passed
+20,000-entry baseline lengths: 20,000 episodes, 20,000 updates
+After fix lengths: 500 episodes, 500 updates
+Retained episode/update range: 19,500–19,999
+Full Ruff: passed
+Full Pytest: 54 passed
+```
+
+Checkpoint commit: `e76d87bb47a782754e8d71b650d8048fad3a5758`.
+
+### Goal: tolerate invalid integer state values in desktop refresh
+
+Acceptance criterion: malformed persisted or streamed timestep, episode, and waypoint integer values must not raise from the Tk refresh or physics-frame paths. Invalid and negative values should degrade to a non-negative default while valid integers remain unchanged.
+
+Observed baseline:
+
+- A minimal real `_refresh_ui()` call with object-valued `total_timesteps` raised `TypeError`.
+- Direct `int()` conversions were also used for frame episode and active waypoint indices.
+- One damaged status or frame payload could therefore stop subsequent desktop updates.
+
+Implemented:
+
+- Add one tested `nonnegative_int()` conversion boundary.
+- Catch overflow, type, and value conversion errors and clamp negative results to zero.
+- Apply the boundary to total/current timesteps, frame episode, and active waypoint index.
+- Leave user form parsing strict so invalid launch input still produces a visible validation error.
+
+Verification:
+
+```text
+Desktop app tests: 7 passed
+Damaged status baseline: TypeError
+Full _refresh_ui() with damaged timesteps after fix: completed
+Valid integer/string conversion: 128 / 256
+Invalid object, text, infinity, and negative values: 0
+Full Ruff: passed
+Full Pytest: 55 passed
+```
+
+Checkpoint commit: `6157962ae230458b1d6840d82e3a93660c129180`.
+
+### Goal: sanitize malformed metric series before desktop charting
+
+Acceptance criterion: persisted or streamed metric arrays containing non-object rows, non-numeric reward/loss values, or non-finite values must not raise from the Tk refresh loop. Valid metric records and numeric points should retain their order.
+
+Observed baseline:
+
+- A string entry in `episodes` caused `_refresh_ui()` to call `.get()` and raise `AttributeError`.
+- Invalid reward or value-loss payloads would subsequently raise during Sparkline's direct `float()` conversion.
+- One damaged metrics row could therefore stop all live charts and status updates.
+
+Implemented:
+
+- Add `metric_records()` to retain only dictionary entries from episode/update lists.
+- Add `finite_float()` to accept convertible finite chart values and reject invalid, object, infinity, and NaN values.
+- Make Sparkline use the shared numeric boundary.
+- Keep valid record order and rolling-success calculation unchanged.
+
+Verification:
+
+```text
+Desktop app tests: 8 passed
+Damaged metrics baseline: AttributeError
+Full _refresh_ui() with damaged metrics after fix: completed
+Retained reward points: [7.5]
+Retained value-loss points: [2.25]
+Full Ruff: passed
+Full Pytest: 56 passed
+```
+
+Checkpoint commit: `4cca3d91c04a0287072342345ef4b5cfc7bf18b0`.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`

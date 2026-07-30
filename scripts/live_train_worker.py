@@ -20,6 +20,7 @@ from stickman_rl.config import PROJECT_ROOT, load_env_config, load_train_config
 from stickman_rl.env import StickmanReachEnv
 
 EVENT_PREFIX = "STICKMAN_EVENT\t"
+METRIC_HISTORY_LIMIT = 500
 
 
 def emit_stdout_event(event_type: str, payload: Any, *, enabled: bool) -> None:
@@ -130,8 +131,8 @@ class LiveTrainingCallback(BaseCallback):
         self.recent_rewards: deque[float] = deque(maxlen=50)
         self.recent_successes: deque[float] = deque(maxlen=50)
         self.recent_distances: deque[float] = deque(maxlen=50)
-        self.episodes: list[dict[str, Any]] = []
-        self.updates: list[dict[str, Any]] = []
+        self.episodes: deque[dict[str, Any]] = deque(maxlen=METRIC_HISTORY_LIMIT)
+        self.updates: deque[dict[str, Any]] = deque(maxlen=METRIC_HISTORY_LIMIT)
         self.last_info: dict[str, Any] = {}
         self.state = "starting"
         self.stop_requested = False
@@ -200,8 +201,8 @@ class LiveTrainingCallback(BaseCallback):
 
     def _write_metrics(self) -> None:
         payload = {
-            "episodes": self.episodes[-500:],
-            "updates": self.updates[-500:],
+            "episodes": list(self.episodes),
+            "updates": list(self.updates),
         }
         atomic_json(self.metrics_path, payload)
         emit_stdout_event("metrics", payload, enabled=self.stream_stdout)

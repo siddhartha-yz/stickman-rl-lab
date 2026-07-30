@@ -6,7 +6,15 @@ from pathlib import Path
 
 import pytest
 
-from stickman_rl.desktop.app import format_number, format_percent, rotate_point, run_summaries
+from stickman_rl.desktop.app import (
+    finite_float,
+    format_number,
+    format_percent,
+    metric_records,
+    nonnegative_int,
+    rotate_point,
+    run_summaries,
+)
 
 
 def test_rotate_point_matches_quarter_turn() -> None:
@@ -15,11 +23,35 @@ def test_rotate_point_matches_quarter_turn() -> None:
     assert math.isclose(y, 4.0, abs_tol=1e-8)
 
 
+def test_metric_input_helpers_filter_invalid_records_and_values() -> None:
+    records = metric_records(
+        ["legacy-row", {"reward": 1.5}, 7, {"value_loss": 2.5}]
+    )
+    assert records == [{"reward": 1.5}, {"value_loss": 2.5}]
+    assert metric_records({"episodes": []}) == []
+    assert finite_float(1.25) == 1.25
+    assert finite_float("2.5") == 2.5
+    assert finite_float("not-a-number") is None
+    assert finite_float({"bad": 1}) is None
+    assert finite_float(float("inf")) is None
+
+
+def test_nonnegative_int_handles_persisted_status_values() -> None:
+    assert nonnegative_int(128) == 128
+    assert nonnegative_int("256") == 256
+    assert nonnegative_int(-5) == 0
+    assert nonnegative_int("not-an-int") == 0
+    assert nonnegative_int({"bad": 1}) == 0
+    assert nonnegative_int(float("inf")) == 0
+
+
 def test_desktop_formatters_handle_missing_values() -> None:
     assert format_number(None) == "—"
     assert format_number(1.234, 2) == "1.23"
     assert format_percent(None) == "—"
     assert format_percent(0.625) == "62.5%"
+    assert format_percent("not-a-number") == "—"
+    assert format_percent({"bad": 1}) == "—"
 
 
 def test_run_summaries_sorts_latest_first(tmp_path: Path) -> None:
