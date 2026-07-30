@@ -1505,6 +1505,40 @@ Full Pytest: 78 passed
 
 Checkpoint commit: `adcd5335599fdca4e6496c60d80e8f9c3187a3ac`.
 
+
+### Goal: tolerate oversized legal JSON numbers in desktop numeric boundaries
+
+Acceptance criterion: arbitrarily large integers parsed from valid JSON must not raise `OverflowError` in action/coordinate normalization, metric formatting, or history timestamp sorting. Non-representable values should use the same safe fallbacks as other non-finite inputs.
+
+Observed baseline:
+
+- `finite_float(10**10000)` raised `OverflowError`.
+- Number and percentage formatting raised the same error.
+- A huge action value terminated frame normalization.
+- A 4001-digit numeric `updated_at` terminated run history sorting.
+
+Implemented:
+
+- Catch `OverflowError` in the shared finite-float conversion boundary.
+- Route number and percentage formatting through that finite boundary, also rejecting NaN and infinity consistently.
+- Let frame actions and all existing coordinate/geometry consumers inherit the safe fallback behavior.
+- Route numeric history timestamps through the same finite conversion and fall back to directory mtime when not representable.
+
+Verification:
+
+```text
+Desktop app tests: 23 passed
+Five oversized-number entry points before fix: OverflowError
+finite_float after fix: None
+Number/percentage display after fix: —
+Oversized action after fix: 0.0
+Oversized history timestamp after fix: summary returned
+Full Ruff: passed
+Full Pytest: 80 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
