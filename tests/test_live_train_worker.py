@@ -283,6 +283,35 @@ def test_status_snapshot_write_failure_emits_live_state_and_recovers(
 
 
 @pytest.mark.parametrize(
+    ("rewards", "dones", "expected_reward"),
+    [
+        ([{"bad": 1}], [False], 0.0),
+        ([1.0], {"bad": 1}, 1.0),
+    ],
+)
+def test_on_step_tolerates_malformed_reward_and_done_vectors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    rewards: object,
+    dones: object,
+    expected_reward: float,
+) -> None:
+    callback = LiveTrainingCallback(run_dir=tmp_path, total_timesteps=64)
+    callback.num_timesteps = 1
+    callback.locals = {"rewards": rewards, "infos": [{}], "dones": dones}
+    monkeypatch.setattr(callback, "_write_metrics", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(callback, "_write_frame", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(callback, "_write_status", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(callback, "_handle_control", lambda: True)
+
+    assert callback._on_step()
+
+    assert callback.current_episode_reward == expected_reward
+    assert callback.episode_step == 1
+    assert not callback.episodes
+
+
+@pytest.mark.parametrize(
     "info_value",
     [
         {"episode": None, "is_success": False, "final_distance": None},
