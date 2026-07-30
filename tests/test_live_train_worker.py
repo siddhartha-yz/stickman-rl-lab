@@ -46,6 +46,18 @@ def test_json_safe_sanitizes_numpy_nonfinite_values() -> None:
     ) == [1.0, None, None]
 
 
+def test_json_safe_handles_recursive_containers() -> None:
+    recursive_dict: dict[str, object] = {}
+    recursive_dict["self"] = recursive_dict
+    recursive_list: list[object] = []
+    recursive_list.append(recursive_list)
+    shared = {"value": 1}
+
+    assert json_safe(recursive_dict) == {"self": "<recursive-reference>"}
+    assert json_safe(recursive_list) == ["<recursive-reference>"]
+    assert json_safe([shared, shared]) == [{"value": 1}, {"value": 1}]
+
+
 def test_json_safe_converts_unsupported_objects_to_stable_text() -> None:
     class CustomInfo:
         pass
