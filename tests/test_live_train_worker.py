@@ -37,6 +37,14 @@ def test_control_read_retries_transient_permission_error(
     assert control == {"paused": True, "stop": False, "save_request": "save-1"}
 
 
+def test_control_read_retains_last_valid_state_for_non_utf8_bytes(tmp_path: Path) -> None:
+    callback = LiveTrainingCallback(run_dir=tmp_path, total_timesteps=64)
+    callback.last_control = {"paused": True, "stop": False, "save_request": "save-utf8"}
+    callback.control_path.write_bytes(b"\xff\xfe\xfa")
+
+    assert callback._control() == callback.last_control
+
+
 def test_control_read_retains_last_valid_state_after_retry_exhaustion(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

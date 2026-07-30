@@ -65,7 +65,7 @@ def read_json_with_retry(path: Path, default: Any = None) -> Any:
     for attempt in range(20):
         try:
             return json.loads(path.read_text(encoding="utf-8"))
-        except (FileNotFoundError, PermissionError, json.JSONDecodeError):
+        except (FileNotFoundError, PermissionError, UnicodeDecodeError, json.JSONDecodeError):
             if attempt == 19:
                 return default
             time.sleep(0.005)
