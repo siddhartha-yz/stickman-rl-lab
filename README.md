@@ -74,6 +74,12 @@ C:\rlv\Scripts\python.exe scripts\run_desktop.py --smoke
 
 It performs a 64-step PPO run, captures `reports/desktop-training-console.png`, writes `reports/desktop-smoke.json`, and exits. The verified smoke completed 64/64 steps, received live frames containing all ten rigid bodies, and exited with code 0.
 
+Desktop migration checkpoints:
+
+- native trainer transport: `f33c8411f89b04ca83dc669c0e37b971b172de29`
+- native desktop console: `dc62e432d4911c0bb46a5b716695045353d497d8`
+- WebUI removal: `ea0d2e3953d82effe559791d344667fc2fe2ebac`
+
 ## Core commands
 
 Validate the environment and run tests:

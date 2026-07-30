@@ -333,7 +333,7 @@ Implemented:
 - `scripts/live_train_worker.py` supports `--stream-stdout` line-delimited events and an explicit `--run-dir`.
 - `stickman_rl.desktop.DesktopTrainingController` launches, observes, pauses, resumes, saves, stops, and snapshots one trainer directly.
 - Configuration validation prevents environment YAML files from being used as PPO training configs.
-- The web transport remains temporarily available until the native UI is independently verified.
+- The initial checkpoint retained the Web transport temporarily; it was removed after the native UI passed its independent checkpoint.
 
 Verification:
 
@@ -406,7 +406,7 @@ Full Ruff: passed
 Full Pytest: 34 passed
 ```
 
-Checkpoint commit: pending `goal_checkpoint.ps1` result.
+Checkpoint commit: `ea0d2e3953d82effe559791d344667fc2fe2ebac`.
 
 ## Generated artifacts
 
@@ -425,7 +425,7 @@ Checkpoint commit: pending `goal_checkpoint.ps1` result.
 - Far-target successful demonstrations: `trajectories/distill-far-balanced-v1.npz`
 - Recommended full-course trajectory: `trajectories/stage3-full-recommended-seed1000.npz`
 - Recommended full-course GIF: `videos/stage3-full-recommended-seed1000.gif`
-- UI-controlled live runs and checkpoints: `lab/runs/*`
+- Desktop-controlled live runs and checkpoints: `lab/runs/*`
 
 ## Current limitations
 
