@@ -408,6 +408,46 @@ Full Pytest: 34 passed
 
 Checkpoint commit: `ea0d2e3953d82effe559791d344667fc2fe2ebac`.
 
+## Stability-only maintenance (2026-07-30)
+
+### Goal: persist trainer diagnostics and harden cross-process JSON I/O
+
+Acceptance criterion: the desktop controller must persist non-event worker stdout/stderr and controller lifecycle records to each run's `worker.log`; trainer spawn failures must become durable `failed` runs; transient Windows sharing locks while reading control/status JSON must not crash training or desktop controls.
+
+Observed baseline:
+
+- Recent desktop runs had empty `worker.log` files because non-structured output existed only in the live in-memory queue.
+- `subprocess.Popen` failures escaped as `OSError`, while the run directory retained a stale `starting` status.
+- Reusing a controller did not explicitly clear per-run event/stderr buffers before a new launch.
+- The first guarded checkpoint run reproduced a worker crash while reading `control.json`: `PermissionError` killed the PPO process during stop.
+- A five-round lifecycle stress test then reproduced the same sharing-lock race in the desktop controller while reading `status.json`, breaking resume.
+
+Implemented:
+
+- Persist controller launch, PID, process exit, non-event stdout, malformed event lines, and stderr with timestamps.
+- Convert trainer spawn failures into `RuntimeError`, write `state=failed`, and preserve the original error in `worker.log` for the existing Tk error handler.
+- Reset process/event/stderr/thread state before every new trainer launch.
+- Add real subprocess regression tests for stdout/stderr persistence and a missing-interpreter startup failure.
+- Retry transient `PermissionError`/decode failures in desktop status, metrics, frame, save, and control-state reads.
+- Retry worker `control.json` reads and preserve the last valid paused/stop/save state if retries are exhausted, preventing accidental unpause.
+- Add deterministic regression tests for both controller-side and worker-side sharing locks.
+
+Verification:
+
+```text
+Desktop controller + worker reliability tests: 8 passed
+Pause/save/resume/stop lifecycle stress: 5/5 repeated runs passed
+Real native desktop smoke: completed, 64/64 steps
+Smoke live frames: 5
+Smoke rigid bodies: 10
+Smoke child exit code: 0
+worker.log: launch command, PID, and exit code 0 persisted
+Full Ruff: passed
+Full Pytest: 39 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`

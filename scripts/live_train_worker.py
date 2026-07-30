@@ -108,6 +108,11 @@ class LiveTrainingCallback(BaseCallback):
         self.last_frame_write = 0.0
         self.last_status_write = 0.0
         self.last_save_request: str | None = None
+        self.last_control: dict[str, Any] = {
+            "paused": False,
+            "stop": False,
+            "save_request": None,
+        }
         self.episode_index = 0
         self.episode_step = 0
         self.current_episode_reward = 0.0
@@ -121,10 +126,22 @@ class LiveTrainingCallback(BaseCallback):
         self.stop_requested = False
 
     def _control(self) -> dict[str, Any]:
-        try:
-            return json.loads(self.control_path.read_text(encoding="utf-8"))
-        except (FileNotFoundError, json.JSONDecodeError):
-            return {"paused": False, "stop": False, "save_request": None}
+        for attempt in range(20):
+            try:
+                payload = json.loads(self.control_path.read_text(encoding="utf-8"))
+                if not isinstance(payload, dict):
+                    raise json.JSONDecodeError("control payload is not an object", "", 0)
+                self.last_control = {
+                    "paused": bool(payload.get("paused", False)),
+                    "stop": bool(payload.get("stop", False)),
+                    "save_request": payload.get("save_request"),
+                }
+                return dict(self.last_control)
+            except (FileNotFoundError, PermissionError, json.JSONDecodeError):
+                if attempt == 19:
+                    return dict(self.last_control)
+                time.sleep(0.005)
+        return dict(self.last_control)
 
     def _logger_metrics(self) -> dict[str, float | None]:
         values = getattr(self.model.logger, "name_to_value", {})
