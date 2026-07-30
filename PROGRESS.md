@@ -709,6 +709,38 @@ Full Pytest: 49 passed
 
 Checkpoint commit: `03a4a829827f754c31cdc92410794d62a416ad00`.
 
+### Goal: isolate manual checkpoint failures from PPO training
+
+Acceptance criterion: a user-requested manual checkpoint failure must produce a structured failed save result and mark that request handled without raising from the PPO callback or stopping the training loop. Final model persistence remains strict.
+
+Observed baseline:
+
+- Injecting `PermissionError` from `model.save()` escaped directly from `_manual_save()`.
+- In `_handle_control()`, the exception would terminate `model.learn()` and fail the entire run.
+- No `last_save.json` result existed for the UI or later diagnosis.
+
+Implemented:
+
+- Convert manual save exceptions into a `state=failed` result containing request ID, timestep, timestamp, exception type, and message.
+- Persist the save result when possible and emit the existing checkpoint event regardless of success or failure.
+- Mark the save request handled so a persistent control file does not retry the same failing save every environment step.
+- Keep final checkpoint save failures fatal because a completed run without its final model is not valid.
+
+Verification:
+
+```text
+Worker reliability tests: 7 passed
+Injected manual save failure before fix: PermissionError escaped
+Callback continues after fix: true
+Callback state after failure: running
+Handled request ID: save-request-1
+Failed save progress retained: 320 steps
+Full Ruff: passed
+Full Pytest: 50 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`

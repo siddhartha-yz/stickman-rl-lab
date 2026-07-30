@@ -59,6 +59,30 @@ def test_control_read_retains_last_valid_state_after_retry_exhaustion(
     }
 
 
+def test_manual_save_failure_is_reported_without_stopping_training(tmp_path: Path) -> None:
+    class FailingModel:
+        def save(self, _path: str) -> None:
+            raise PermissionError("simulated checkpoint directory lock")
+
+    callback = LiveTrainingCallback(run_dir=tmp_path, total_timesteps=5000)
+    callback.model = FailingModel()  # type: ignore[assignment]
+    callback.num_timesteps = 320
+    callback.control_path.write_text(
+        json.dumps({"paused": False, "stop": False, "save_request": "save-request-1"}),
+        encoding="utf-8",
+    )
+
+    assert callback._handle_control()
+
+    payload = json.loads((tmp_path / "last_save.json").read_text(encoding="utf-8"))
+    assert callback.state == "running"
+    assert callback.last_save_request == "save-request-1"
+    assert payload["state"] == "failed"
+    assert payload["num_timesteps"] == 320
+    assert payload["request_id"] == "save-request-1"
+    assert "simulated checkpoint directory lock" in payload["error"]
+
+
 def test_run_closes_environment_when_ppo_construction_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
