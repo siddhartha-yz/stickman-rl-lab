@@ -264,13 +264,20 @@ class DesktopTrainingController:
         text: str,
         *,
         run_dir: Path | None = None,
-    ) -> None:
+    ) -> bool:
         destination = run_dir or self.run_dir
         if destination is None:
-            return
+            return False
         timestamp = datetime.now().isoformat(timespec="milliseconds")
-        with self._log_lock, (destination / "worker.log").open("a", encoding="utf-8") as handle:
-            handle.write(f"[{timestamp}] {stream}: {text}\n")
+        try:
+            with self._log_lock, (destination / "worker.log").open(
+                "a",
+                encoding="utf-8",
+            ) as handle:
+                handle.write(f"[{timestamp}] {stream}: {text}\n")
+        except OSError:
+            return False
+        return True
 
     def _handle_process_exit(
         self,
