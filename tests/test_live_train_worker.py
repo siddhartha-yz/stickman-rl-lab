@@ -8,7 +8,19 @@ from pathlib import Path
 import pytest
 
 import scripts.live_train_worker as worker_module
-from scripts.live_train_worker import LiveTrainingCallback, build_failure_status, emit_stdout_event
+from scripts.live_train_worker import (
+    LiveTrainingCallback,
+    build_failure_status,
+    emit_stdout_event,
+    json_safe,
+)
+
+
+def test_json_safe_sanitizes_numpy_nonfinite_values() -> None:
+    assert json_safe(worker_module.np.float32(worker_module.np.inf)) is None
+    assert json_safe(
+        worker_module.np.array([1.0, worker_module.np.nan, worker_module.np.inf])
+    ) == [1.0, None, None]
 
 
 def test_emit_stdout_event_returns_false_for_broken_pipe(
