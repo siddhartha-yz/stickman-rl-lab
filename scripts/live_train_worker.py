@@ -21,6 +21,7 @@ from stickman_rl.env import StickmanReachEnv
 
 EVENT_PREFIX = "STICKMAN_EVENT\t"
 METRIC_HISTORY_LIMIT = 500
+JSON_SAFE_MAX_DEPTH = 128
 
 
 def emit_stdout_event(event_type: str, payload: Any, *, enabled: bool) -> bool:
@@ -139,25 +140,46 @@ def optional_finite_float(value: Any) -> float | None:
     return parsed if np.isfinite(parsed) else None
 
 
-def json_safe(value: Any, active_containers: set[int] | None = None) -> Any:
+def json_safe(
+    value: Any,
+    active_containers: set[int] | None = None,
+    depth: int = 0,
+) -> Any:
     if active_containers is None:
         active_containers = set()
     if isinstance(value, np.generic):
-        return json_safe(value.item(), active_containers)
+        return json_safe(value.item(), active_containers, depth)
     if isinstance(value, np.ndarray):
-        return json_safe(value.tolist(), active_containers)
+        return json_safe(value.tolist(), active_containers, depth)
     if isinstance(value, dict | list | tuple):
+        if depth >= JSON_SAFE_MAX_DEPTH:
+            return "<max-depth>"
         identity = id(value)
         if identity in active_containers:
             return "<recursive-reference>"
         active_containers.add(identity)
         try:
             if isinstance(value, dict):
-                return {
-                    str(key): json_safe(item, active_containers)
-                    for key, item in value.items()
-                }
-            return [json_safe(item, active_containers) for item in value]
+                normalized: dict[str, Any] = {}
+                for index, (key, item) in enumerate(value.items()):
+                    try:
+                        normalized_key = str(key)
+                    except Exception:  # noqa: BLE001 - malformed info keys must not stop training
+                        key_type = type(key)
+                        normalized_key = (
+                            f"<unprintable-key:{key_type.__module__}."
+                            f"{key_type.__qualname__}:{index}>"
+                        )
+                    normalized[normalized_key] = json_safe(
+                        item,
+                        active_containers,
+                        depth + 1,
+                    )
+                return normalized
+            return [
+                json_safe(item, active_containers, depth + 1)
+                for item in value
+            ]
         finally:
             active_containers.remove(identity)
     if isinstance(value, float):
