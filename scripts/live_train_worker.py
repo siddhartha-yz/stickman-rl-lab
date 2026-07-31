@@ -117,6 +117,13 @@ def first_sequence_item(value: Any) -> Any:
 def finite_bool(value: Any, default: bool = False) -> bool:
     if isinstance(value, bool | np.bool_):
         return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "off"}:
+            return False
+        return default
     if isinstance(value, int | float | np.number):
         parsed = finite_float(value, float("nan"))
         return bool(parsed) if np.isfinite(parsed) else default
@@ -230,8 +237,12 @@ class LiveTrainingCallback(BaseCallback):
         if not isinstance(payload, dict):
             return dict(self.last_control)
         self.last_control = {
-            "paused": bool(payload.get("paused", False)),
-            "stop": bool(payload.get("stop", False)),
+            "paused": finite_bool(
+                payload.get("paused"), bool(self.last_control.get("paused", False))
+            ),
+            "stop": finite_bool(
+                payload.get("stop"), bool(self.last_control.get("stop", False))
+            ),
             "save_request": payload.get("save_request"),
         }
         return dict(self.last_control)

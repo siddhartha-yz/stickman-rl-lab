@@ -1909,6 +1909,38 @@ Full Pytest: 94 passed
 
 Checkpoint commit: `84eea3208907fa7a88367dc914abd67b8bd8a169`.
 
+
+### Goal: parse persisted control booleans without Python truthiness
+
+Acceptance criterion: string-valued `paused/stop` fields such as `"false"` and `"0"` must not become true merely because the strings are non-empty. Recognized values must parse predictably, and malformed values must not flip the last valid control state.
+
+Observed baseline:
+
+- A control file containing `{"paused": "false", "stop": "false"}` produced `paused=True, stop=True`.
+- The worker could therefore pause or terminate from a manually edited, migrated, or damaged control file that visually requested false.
+
+Implemented:
+
+- Recognize common true strings: `true`, `1`, `yes`, `on`.
+- Recognize common false strings: `false`, `0`, `no`, `off`.
+- Continue accepting booleans and finite numeric values.
+- Preserve the previous valid control state for unknown strings or object values.
+- Use the strict parser for both paused and stop fields.
+
+Verification:
+
+```text
+Worker tests: 25 passed
+String false baseline: paused=True, stop=True
+String false after fix: paused=False, stop=False
+String yes/on after fix: paused=True, stop=True
+Unknown values after fix: last valid state retained
+Full Ruff: passed
+Full Pytest: 95 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
