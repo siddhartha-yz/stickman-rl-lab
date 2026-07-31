@@ -2705,6 +2705,35 @@ Sensitive information scan: no findings
 
 Checkpoint commit: `444656e568a532f2fb2252df6460e1086a25de06`.
 
+### Goal: close both main training environments when callback setup fails
+
+Acceptance criterion: after model setup succeeds, any exception while constructing training callbacks must close both training and evaluation VecEnvs before propagating the original failure.
+
+Observed baseline:
+
+- Callback construction occurred after PPO setup but before the existing `model.learn()` cleanup scope.
+- A deterministic injected `EnvironmentMetricsCallback` constructor failure left both already allocated VecEnvs open.
+- Invalid callback configuration or third-party callback failures could therefore leak resources without starting training.
+
+Implemented:
+
+- Wrap callback list construction, annealing callback setup, early stopping setup, and callback aggregation in one cleanup guard.
+- Close both allocated VecEnvs for any callback setup exception, including interruption and termination paths.
+- Re-raise the original callback setup exception unchanged.
+- Add a focused callback-construction regression while retaining the two earlier environment cleanup regressions and real PPO smoke.
+
+Verification:
+
+```text
+Reproduction before fix: train and evaluation VecEnvs both closed=False after callback construction failure
+Focused cleanup regressions and real PPO smoke: 4 passed
+Full Ruff: passed
+Full Pytest: 170 passed
+Sensitive information scan: no findings
+```
+
+Checkpoint commit: `<pending>`.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`

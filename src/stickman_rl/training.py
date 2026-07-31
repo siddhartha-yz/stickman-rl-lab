@@ -149,44 +149,49 @@ def train_ppo(
         env.close()
         eval_env.close()
         raise
-    callback_items: list[Any] = [EnvironmentMetricsCallback()]
-    if anneal_from_stage is not None:
-        start_rewards = load_env_config(stage=anneal_from_stage)["rewards"]
-        callback_items.append(
-            RewardAnnealingCallback(
-                start_weights=start_rewards,
-                end_weights=env_cfg["rewards"],
-                anneal_timesteps=int(anneal_timesteps or max(1, timesteps // 2)),
+    try:
+        callback_items: list[Any] = [EnvironmentMetricsCallback()]
+        if anneal_from_stage is not None:
+            start_rewards = load_env_config(stage=anneal_from_stage)["rewards"]
+            callback_items.append(
+                RewardAnnealingCallback(
+                    start_weights=start_rewards,
+                    end_weights=env_cfg["rewards"],
+                    anneal_timesteps=int(anneal_timesteps or max(1, timesteps // 2)),
+                )
             )
+        early_stop_callback = None
+        patience = int(train_cfg.get("early_stopping_patience_evals", 0))
+        if patience > 0:
+            early_stop_callback = StopTrainingOnNoModelImprovement(
+                max_no_improvement_evals=patience,
+                min_evals=int(train_cfg.get("early_stopping_min_evals", 2)),
+                verbose=1,
+            )
+        callback_items.extend(
+            [
+                CheckpointCallback(
+                    save_freq=max(1, int(train_cfg["checkpoint_freq"]) // n_envs),
+                    save_path=str(checkpoint_dir),
+                    name_prefix="ppo_stickman",
+                ),
+                EvalCallback(
+                    eval_env,
+                    best_model_save_path=str(checkpoint_dir / "best"),
+                    log_path=str(log_dir / "eval"),
+                    eval_freq=max(1, int(train_cfg["eval_freq"]) // n_envs),
+                    n_eval_episodes=int(train_cfg["eval_episodes"]),
+                    deterministic=True,
+                    render=False,
+                    callback_after_eval=early_stop_callback,
+                ),
+            ]
         )
-    early_stop_callback = None
-    patience = int(train_cfg.get("early_stopping_patience_evals", 0))
-    if patience > 0:
-        early_stop_callback = StopTrainingOnNoModelImprovement(
-            max_no_improvement_evals=patience,
-            min_evals=int(train_cfg.get("early_stopping_min_evals", 2)),
-            verbose=1,
-        )
-    callback_items.extend(
-        [
-            CheckpointCallback(
-                save_freq=max(1, int(train_cfg["checkpoint_freq"]) // n_envs),
-                save_path=str(checkpoint_dir),
-                name_prefix="ppo_stickman",
-            ),
-            EvalCallback(
-                eval_env,
-                best_model_save_path=str(checkpoint_dir / "best"),
-                log_path=str(log_dir / "eval"),
-                eval_freq=max(1, int(train_cfg["eval_freq"]) // n_envs),
-                n_eval_episodes=int(train_cfg["eval_episodes"]),
-                deterministic=True,
-                render=False,
-                callback_after_eval=early_stop_callback,
-            ),
-        ]
-    )
-    callbacks = CallbackList(callback_items)
+        callbacks = CallbackList(callback_items)
+    except BaseException:  # noqa: BLE001 - close both allocated envs before propagating
+        env.close()
+        eval_env.close()
+        raise
     try:
         model.learn(total_timesteps=timesteps, callback=callbacks, reset_num_timesteps=not bool(resume), progress_bar=False)
         final_path = checkpoint_dir / "final_model"
