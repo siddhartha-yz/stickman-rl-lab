@@ -140,7 +140,12 @@ def read_json_object(
 
 
 def _validated_config(value: str | None, *, training: bool) -> str | None:
-    if value is None or not value.strip():
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError("Config path must be a string")
+    value = value.strip()
+    if not value:
         return None
     candidate = (PROJECT_ROOT / value).resolve()
     config_root = (PROJECT_ROOT / "configs").resolve()

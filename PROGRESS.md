@@ -2032,6 +2032,35 @@ Full Pytest: 107 passed
 
 Checkpoint commit: `1cf9ed14ed352cdabe4fa2b92558e40460b96f2d`.
 
+
+### Goal: reject non-string config values before creating a run
+
+Acceptance criterion: `train_config` and `env_config` must be `str` or `None`. Other runtime values must produce a clear validation error before the controller creates a run directory or starts a worker.
+
+Observed baseline:
+
+- `train_config=True` and `train_config=Path(...)` raised a raw `AttributeError` from `.strip()`.
+- `env_config=1` and `env_config=[]` failed through the same accidental exception path.
+- The type annotation alone did not protect programmatic callers.
+
+Implemented:
+
+- Return `None` for absent or blank string config values as before.
+- Reject every non-string, non-`None` config value with `ValueError: Config path must be a string`.
+- Preserve path containment, file extension, existence, and training-config naming checks.
+
+Verification:
+
+```text
+Controller tests: 30 passed
+Rejected as ValueError: train_config bool/Path, env_config int/list
+Run directories after every rejected request: 0
+Full Ruff: passed
+Full Pytest: 111 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
