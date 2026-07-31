@@ -373,6 +373,23 @@ def test_status_snapshot_write_failure_emits_live_state_and_recovers(
     assert emitted[-1][1]["status_snapshot_error"] is None  # type: ignore[index]
 
 
+def test_on_step_clears_stale_last_info(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    callback = LiveTrainingCallback(run_dir=tmp_path, total_timesteps=64)
+    callback.num_timesteps = 2
+    callback.last_info = {"is_success": True, "final_distance": 0.1}
+    callback.locals = {"rewards": [0.0], "infos": [{}], "dones": [False]}
+    monkeypatch.setattr(callback, "_write_metrics", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(callback, "_write_frame", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(callback, "_write_status", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(callback, "_handle_control", lambda: True)
+
+    assert callback._on_step()
+    assert callback.last_info == {}
+
+
 @pytest.mark.parametrize(
     ("rewards", "dones", "expected_reward"),
     [
