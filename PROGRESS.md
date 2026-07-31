@@ -2647,6 +2647,35 @@ Sensitive information scan: no findings
 
 Checkpoint commit: `8866d37c59660bfb717166b27c7f9ef56b546859`.
 
+### Goal: close the main training environment when evaluation environment creation fails
+
+Acceptance criterion: after the primary VecEnv is successfully allocated, a failure while creating the evaluation VecEnv must close the primary environment before the original exception propagates.
+
+Observed baseline:
+
+- `train_ppo()` created the training VecEnv and then created the evaluation VecEnv before entering its existing cleanup scope.
+- A deterministic injected evaluation-environment creation failure raised as expected but left the already allocated training environment open.
+- Repeated orchestration failures could therefore retain environment, physics, or process resources before training even began.
+
+Implemented:
+
+- Wrap only evaluation VecEnv creation in a cleanup guard.
+- Close the successfully allocated training environment for any creation-time exception, including interruption and termination paths.
+- Re-raise the original exception unchanged.
+- Add an isolated fake-VecEnv regression and retain the existing real PPO train/save/reload smoke.
+
+Verification:
+
+```text
+Reproduction before fix: training VecEnv closed=False after evaluation VecEnv creation failure
+Focused cleanup regression and real PPO smoke: 2 passed
+Full Ruff: passed
+Full Pytest: 168 passed
+Sensitive information scan: no findings
+```
+
+Checkpoint commit: `<pending>`.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
