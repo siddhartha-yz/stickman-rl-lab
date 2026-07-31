@@ -149,6 +149,56 @@ def test_emit_stdout_event_sanitizes_malformed_payloads(
     assert "<max-depth>" in output
 
 
+def test_action_vector_normalizes_and_rejects_malformed_values() -> None:
+    assert worker_module.action_vector([[0.25, -0.5]]) == [0.25, -0.5]
+    assert worker_module.action_vector(0.5) == [0.5]
+    assert worker_module.action_vector([float("nan"), float("inf")]) == [0.0, 0.0]
+    assert worker_module.action_vector({"bad": 1}) == []
+    assert worker_module.action_vector([[1, 2], [3]]) == []
+
+
+def test_live_frame_downgrades_malformed_actions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeVecEnv:
+        def env_method(self, name: str, include_metadata: bool = False) -> list[dict[str, object]]:
+            assert name == "live_snapshot"
+            assert not include_metadata
+            return [
+                {
+                    "frame": {
+                        "body_positions": [],
+                        "body_angles": [],
+                        "info": {},
+                    }
+                }
+            ]
+
+    class FakeModel:
+        def __init__(self) -> None:
+            self.env = FakeVecEnv()
+
+        def get_env(self) -> FakeVecEnv:
+            return self.env
+
+    (tmp_path / "metadata.json").write_text("{}", encoding="utf-8")
+    callback = LiveTrainingCallback(run_dir=tmp_path, total_timesteps=64)
+    callback.model = FakeModel()  # type: ignore[assignment]
+    callback.num_timesteps = 1
+    captured: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        worker_module,
+        "atomic_json_compact",
+        lambda _path, payload: captured.append(payload),
+    )
+
+    for malformed in ({"bad": 1}, [[1, 2], [3]]):
+        callback.locals = {"actions": malformed}
+        callback._write_frame(force_disk=True)
+        assert captured[-1]["training"]["action"] == []  # type: ignore[index]
+
+
 def test_logger_metrics_ignore_non_scalar_and_invalid_values(tmp_path: Path) -> None:
     class FakeLogger:
         name_to_value = {
