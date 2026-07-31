@@ -495,8 +495,7 @@ class LiveTrainingCallback(BaseCallback):
         done = finite_bool(first_sequence_item(self.locals.get("dones", [])))
         self.current_episode_reward += reward
         self.episode_step += 1
-        if info:
-            self.last_info = info
+        self.last_info = info
         if done:
             raw_episode_info = info.get("episode", {})
             episode_info = raw_episode_info if isinstance(raw_episode_info, dict) else {}
@@ -506,7 +505,7 @@ class LiveTrainingCallback(BaseCallback):
             episode_length = nonnegative_int(
                 episode_info.get("l"), self.episode_step
             )
-            success = bool(info.get("is_success", False))
+            success = finite_bool(info.get("is_success"), False)
             final_distance = finite_float(
                 info.get("final_distance", info.get("distance")), 0.0
             )

@@ -373,6 +373,23 @@ def test_status_snapshot_write_failure_emits_live_state_and_recovers(
     assert emitted[-1][1]["status_snapshot_error"] is None  # type: ignore[index]
 
 
+def test_on_step_clears_stale_last_info(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    callback = LiveTrainingCallback(run_dir=tmp_path, total_timesteps=64)
+    callback.num_timesteps = 2
+    callback.last_info = {"is_success": True, "final_distance": 0.1}
+    callback.locals = {"rewards": [0.0], "infos": [{}], "dones": [False]}
+    monkeypatch.setattr(callback, "_write_metrics", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(callback, "_write_frame", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(callback, "_write_status", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(callback, "_handle_control", lambda: True)
+
+    assert callback._on_step()
+    assert callback.last_info == {}
+
+
 @pytest.mark.parametrize(
     ("rewards", "dones", "expected_reward"),
     [
@@ -400,6 +417,43 @@ def test_on_step_tolerates_malformed_reward_and_done_vectors(
     assert callback.current_episode_reward == expected_reward
     assert callback.episode_step == 1
     assert not callback.episodes
+
+
+@pytest.mark.parametrize(
+    ("success_value", "expected_success"),
+    [
+        ("false", False),
+        ("true", True),
+        ("unknown", False),
+        ({"bad": 1}, False),
+    ],
+)
+def test_on_step_parses_success_flags_strictly(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    success_value: object,
+    expected_success: bool,
+) -> None:
+    callback = LiveTrainingCallback(run_dir=tmp_path, total_timesteps=64)
+    callback.num_timesteps = 1
+    callback.locals = {
+        "rewards": [1.0],
+        "infos": [
+            {
+                "episode": {"r": 1.0, "l": 1},
+                "is_success": success_value,
+                "final_distance": 2.0,
+            }
+        ],
+        "dones": [True],
+    }
+    monkeypatch.setattr(callback, "_write_metrics", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(callback, "_write_frame", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(callback, "_write_status", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(callback, "_handle_control", lambda: True)
+
+    assert callback._on_step()
+    assert callback.episodes[0]["success"] is expected_success
 
 
 @pytest.mark.parametrize(

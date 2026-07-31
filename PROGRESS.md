@@ -1941,6 +1941,66 @@ Full Pytest: 95 passed
 
 Checkpoint commit: `0ea58f9f09550e61927e64a6a8692594cbfc50af`.
 
+
+### Goal: parse episode success flags without Python truthiness
+
+Acceptance criterion: string or malformed `is_success` values must not be classified through Python truthiness. Recognized true/false representations must update success metrics correctly, and unknown values must default to failure.
+
+Observed baseline:
+
+- An episode with `is_success="false"` was recorded as `success=True`.
+- Rolling success rate and any downstream checkpoint selection using it could therefore be corrupted by a wrapper or migrated payload.
+
+Implemented:
+
+- Reuse the strict finite boolean parser for `is_success`.
+- Recognize standard true/false strings and finite numeric booleans.
+- Default unknown strings and object values to `False`.
+- Preserve normal boolean environment output unchanged.
+
+Verification:
+
+```text
+Worker tests: 29 passed
+String false baseline: success=True
+String false after fix: success=False
+String true after fix: success=True
+Unknown/object values after fix: success=False
+Full Ruff: passed
+Full Pytest: 99 passed
+```
+
+Checkpoint commit: `411029ee8a353cb927a7740a1b09186dd9352c86`.
+
+
+### Goal: clear stale last_info when the current step has no info
+
+Acceptance criterion: `last_info` must describe the current rollout step. An empty or invalid current info payload must clear previous success, distance, and diagnostic fields instead of leaving stale values visible in status and the desktop UI.
+
+Observed baseline:
+
+- The callback updated `last_info` only when the current info dictionary was non-empty.
+- After a previous `is_success=True, final_distance=0.1`, a later empty info step retained those values.
+- The desktop could therefore display a previous episode's result as if it belonged to the current step.
+
+Implemented:
+
+- Replace `last_info` on every step with the normalized current info object.
+- Empty or malformed info now produces `{}` and clears stale fields.
+- Preserve normal non-empty environment info unchanged.
+
+Verification:
+
+```text
+Worker tests: 30 passed
+Stale info baseline: {'is_success': True, 'final_distance': 0.1}
+Empty info after fix: {}
+Full Ruff: passed
+Full Pytest: 100 passed
+```
+
+Checkpoint commit: `a45ebf25bdc7a8cf4969de33d03986ed430e8b1f`.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
