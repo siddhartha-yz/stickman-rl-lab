@@ -2586,6 +2586,37 @@ Sensitive information scan: no findings
 Checkpoint commit: `1ba5dbe82f9c1434760b4d28fb42f3ec11ff0e11`.
 
 
+### Goal: fall back from missing autonomous continuation checkpoints
+
+Acceptance criterion: a ranked summary without a usable `recommended_checkpoint` must not become the literal resume path `"None"` or another invalid value. Continuation training should fall back to the known Stage-2 base checkpoint unless the recommended path is a non-empty existing file.
+
+Observed baseline:
+
+- Continuation source construction wrapped `summary.get("recommended_checkpoint")` in `str(...)`.
+- A deterministic ranked summary contained valid evaluation metrics but no checkpoint field.
+- The generated continuation command used `--resume None`, guaranteeing the next training branch would fail.
+
+Implemented:
+
+- Add one continuation checkpoint resolver.
+- Accept only non-empty string paths that resolve to an existing file, supporting both relative and absolute paths.
+- Fall back to the existing Stage-2 base checkpoint for missing, blank, non-string, or unavailable recommendations.
+- Add an end-to-end orchestrator regression proving missing metadata generates the base resume path.
+
+Verification:
+
+```text
+Reproduction before fix: continuation command contained --resume None
+Focused autonomous-review regressions: 5 passed
+Fallback continuation command: verified base checkpoint path
+Full Ruff: passed
+Full Pytest: 164 passed
+Sensitive information scan: no findings
+```
+
+Checkpoint commit: `PENDING`.
+
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
