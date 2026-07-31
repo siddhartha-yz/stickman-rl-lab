@@ -140,6 +140,20 @@ def optional_finite_float(value: Any) -> float | None:
     return parsed if np.isfinite(parsed) else None
 
 
+def action_vector(value: Any) -> list[float]:
+    try:
+        actions = np.asarray(value, dtype=float)
+    except (OverflowError, TypeError, ValueError):
+        return []
+    if actions.size == 0:
+        return []
+    if actions.ndim == 0:
+        actions = actions.reshape(1)
+    elif actions.ndim > 1:
+        actions = actions[0]
+    return [finite_float(item) for item in actions.reshape(-1)]
+
+
 def json_safe(
     value: Any,
     active_containers: set[int] | None = None,
@@ -223,6 +237,8 @@ class LiveTrainingCallback(BaseCallback):
         self.metrics_path = run_dir / "metrics.json"
         self.stream_stdout = stream_stdout
         self.last_disk_frame_write = 0.0
+        self.frame_capture_retry_after = 0.0
+        self.frame_capture_error: str | None = None
         self.frame_snapshot_retry_after = 0.0
         self.frame_snapshot_error: str | None = None
         self.metrics_snapshot_retry_after = 0.0
@@ -311,6 +327,7 @@ class LiveTrainingCallback(BaseCallback):
             "losses": self._logger_metrics(),
             "from_scratch": True,
             "event_transport": "stdout" if self.stream_stdout else "disk-only",
+            "frame_capture_error": self.frame_capture_error,
             "frame_snapshot_error": self.frame_snapshot_error,
             "metrics_snapshot_error": self.metrics_snapshot_error,
             "metadata_snapshot_error": self.metadata_snapshot_error,
@@ -370,17 +387,48 @@ class LiveTrainingCallback(BaseCallback):
             self.metrics_snapshot_error = None
 
     def _write_frame(self, force_disk: bool = False) -> None:
+        now = time.monotonic()
+        if not force_disk and now < self.frame_capture_retry_after:
+            self.last_frame_write = now
+            return
         needs_metadata = self.cached_metadata is None and not self.metadata_path.exists()
-        snapshot = self.training_env.env_method(
-            "live_snapshot", include_metadata=needs_metadata
-        )[0]
+        try:
+            snapshots = self.training_env.env_method(
+                "live_snapshot", include_metadata=needs_metadata
+            )
+            if not isinstance(snapshots, list | tuple) or not snapshots:
+                raise ValueError("live_snapshot returned no environment payloads")
+            raw_snapshot = snapshots[0]
+            if not isinstance(raw_snapshot, dict):
+                raise TypeError("live_snapshot payload must be an object")
+            snapshot = dict(raw_snapshot)
+            if not isinstance(snapshot.get("frame"), dict):
+                raise ValueError("live_snapshot omitted frame data")
+            if needs_metadata and "metadata" not in snapshot:
+                raise ValueError("live_snapshot omitted metadata")
+        except Exception as exc:  # noqa: BLE001 - live observation must not stop PPO
+            self.frame_capture_error = f"{type(exc).__name__}: {exc}"
+            self.frame_capture_retry_after = now + 1.0
+            self.stream_stdout = emit_stdout_event(
+                "log",
+                {
+                    "stream": "worker",
+                    "text": f"live frame capture failed; retrying later: {self.frame_capture_error}",
+                },
+                enabled=self.stream_stdout,
+            )
+            self.last_frame_write = now
+            return
+        self.frame_capture_error = None
+        self.frame_capture_retry_after = 0.0
         if needs_metadata:
             self.cached_metadata = json_safe(snapshot.pop("metadata"))
             self.stream_stdout = emit_stdout_event(
                 "metadata", self.cached_metadata, enabled=self.stream_stdout
             )
-        actions = np.asarray(self.locals.get("actions", np.zeros((1, 8), dtype=np.float32)))
-        action = actions[0].astype(float).tolist() if actions.ndim > 1 else actions.astype(float).tolist()
+        action = action_vector(
+            self.locals.get("actions", np.zeros((1, 8), dtype=np.float32))
+        )
         payload = json_safe(
             {
                 **snapshot,

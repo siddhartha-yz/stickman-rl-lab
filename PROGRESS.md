@@ -2151,6 +2151,69 @@ Full Pytest: 114 passed
 
 Checkpoint commit: `7d458905dc0012c351ada240a639ad5edc08bd13`.
 
+
+### Goal: keep live frame serialization alive with malformed action values
+
+Acceptance criterion: the action vector is observational metadata. Invalid callback values must not terminate PPO while valid scalar, vector, and batched actions remain finite numeric lists.
+
+Observed baseline:
+
+- A dictionary action caused `_write_frame()` to raise `TypeError`.
+- A ragged nested action caused NumPy conversion to raise `ValueError`.
+- Both failures occurred in the live observation path after the environment step had already completed.
+
+Implemented:
+
+- Add a dedicated `action_vector()` boundary.
+- Accept scalar, one-dimensional, and batched actions, selecting the first environment row.
+- Convert non-finite elements to `0.0`.
+- Degrade non-numeric and ragged values to an empty action list.
+
+Verification:
+
+```text
+Worker tests: 34 passed
+Dictionary action after fix: []
+Scalar action after fix: [0.5]
+Ragged action after fix: []
+Full Ruff: passed
+Full Pytest: 116 passed
+```
+
+Checkpoint commit: `92b1c9c0cc61e5cd7de3cf67fd54ad85c9a8b379`.
+
+
+### Goal: isolate live snapshot capture failures from PPO training
+
+Acceptance criterion: live physics snapshots are observational. Empty, malformed, missing-metadata, or raising snapshot providers must not terminate PPO; they must expose a diagnostic error, back off, and recover on a later successful capture.
+
+Observed baseline:
+
+- An empty result raised `IndexError`.
+- A `None` payload raised `AttributeError`.
+- A frame without required metadata raised `KeyError`.
+- A snapshot provider exception escaped directly as `RuntimeError`.
+
+Implemented:
+
+- Validate the environment result container, first payload object, frame object, and initial metadata.
+- Record `frame_capture_error` in status and retry after one second.
+- Emit a worker diagnostic log and return without creating a fake frame.
+- Allow forced start/end calls to retry immediately; clear the error after recovery.
+
+Verification:
+
+```text
+Worker tests: 36 passed
+Empty/None/missing-metadata/raising providers: all isolated
+Failed captures: no frame.json created
+Forced retry recovery: metadata.json and frame.json created, error cleared
+Full Ruff: passed
+Full Pytest: 118 passed
+```
+
+Checkpoint commit: `417a760012bcfc71b1a6f56156ddc2ef0f75f4ee`.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
