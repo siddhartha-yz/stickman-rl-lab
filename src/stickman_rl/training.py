@@ -90,94 +90,108 @@ def train_ppo(
 
     n_envs = int(train_cfg.get("n_envs", 1))
     env = make_vec_env(_make_monitored_env(stage, actual_seed, env_config_path), n_envs=n_envs, seed=actual_seed)
-    eval_env = make_vec_env(
-        _make_monitored_env(stage, actual_seed + 10000, env_config_path),
-        n_envs=1,
-        seed=actual_seed + 10000,
-    )
-    policy_kwargs = {
-        "net_arch": list(train_cfg.get("policy_layers", [256, 256])),
-        "log_std_init": float(train_cfg.get("log_std_init", 0.0)),
-    }
-    if resume:
-        model = PPO.load(str(resume), env=env, tensorboard_log=str(log_dir), device="auto")
-        model.set_random_seed(actual_seed)
-        learning_rate = float(train_cfg["learning_rate"])
-        model.learning_rate = learning_rate
-        model.lr_schedule = FloatSchedule(learning_rate)
-        for parameter_group in model.policy.optimizer.param_groups:
-            parameter_group["lr"] = learning_rate
-        model.clip_range = FloatSchedule(float(train_cfg["clip_range"]))
-        model.gamma = float(train_cfg["gamma"])
-        model.gae_lambda = float(train_cfg["gae_lambda"])
-        model.ent_coef = float(train_cfg["ent_coef"])
-        model.vf_coef = float(train_cfg["vf_coef"])
-        model.max_grad_norm = float(train_cfg["max_grad_norm"])
-        if "target_kl" in train_cfg:
-            model.target_kl = float(train_cfg["target_kl"])
-        model.n_epochs = int(train_cfg["n_epochs"])
-        model.batch_size = int(train_cfg["batch_size"])
-        if "resume_log_std" in train_cfg:
-            model.policy.log_std.data.fill_(float(train_cfg["resume_log_std"]))
-    else:
-        model = PPO(
-            "MlpPolicy",
-            env,
-            learning_rate=float(train_cfg["learning_rate"]),
-            n_steps=int(train_cfg["n_steps"]),
-            batch_size=int(train_cfg["batch_size"]),
-            n_epochs=int(train_cfg["n_epochs"]),
-            gamma=float(train_cfg["gamma"]),
-            gae_lambda=float(train_cfg["gae_lambda"]),
-            clip_range=float(train_cfg["clip_range"]),
-            ent_coef=float(train_cfg["ent_coef"]),
-            vf_coef=float(train_cfg["vf_coef"]),
-            max_grad_norm=float(train_cfg["max_grad_norm"]),
-            target_kl=float(train_cfg["target_kl"]) if "target_kl" in train_cfg else None,
-            policy_kwargs=policy_kwargs,
-            verbose=1,
-            tensorboard_log=str(log_dir),
-            seed=actual_seed,
-            device="auto",
+    try:
+        eval_env = make_vec_env(
+            _make_monitored_env(stage, actual_seed + 10000, env_config_path),
+            n_envs=1,
+            seed=actual_seed + 10000,
         )
-    callback_items: list[Any] = [EnvironmentMetricsCallback()]
-    if anneal_from_stage is not None:
-        start_rewards = load_env_config(stage=anneal_from_stage)["rewards"]
-        callback_items.append(
-            RewardAnnealingCallback(
-                start_weights=start_rewards,
-                end_weights=env_cfg["rewards"],
-                anneal_timesteps=int(anneal_timesteps or max(1, timesteps // 2)),
+    except BaseException:  # noqa: BLE001 - release the allocated training env before propagating
+        env.close()
+        raise
+    try:
+        policy_kwargs = {
+            "net_arch": list(train_cfg.get("policy_layers", [256, 256])),
+            "log_std_init": float(train_cfg.get("log_std_init", 0.0)),
+        }
+        if resume:
+            model = PPO.load(str(resume), env=env, tensorboard_log=str(log_dir), device="auto")
+            model.set_random_seed(actual_seed)
+            learning_rate = float(train_cfg["learning_rate"])
+            model.learning_rate = learning_rate
+            model.lr_schedule = FloatSchedule(learning_rate)
+            for parameter_group in model.policy.optimizer.param_groups:
+                parameter_group["lr"] = learning_rate
+            model.clip_range = FloatSchedule(float(train_cfg["clip_range"]))
+            model.gamma = float(train_cfg["gamma"])
+            model.gae_lambda = float(train_cfg["gae_lambda"])
+            model.ent_coef = float(train_cfg["ent_coef"])
+            model.vf_coef = float(train_cfg["vf_coef"])
+            model.max_grad_norm = float(train_cfg["max_grad_norm"])
+            if "target_kl" in train_cfg:
+                model.target_kl = float(train_cfg["target_kl"])
+            model.n_epochs = int(train_cfg["n_epochs"])
+            model.batch_size = int(train_cfg["batch_size"])
+            if "resume_log_std" in train_cfg:
+                model.policy.log_std.data.fill_(float(train_cfg["resume_log_std"]))
+        else:
+            model = PPO(
+                "MlpPolicy",
+                env,
+                learning_rate=float(train_cfg["learning_rate"]),
+                n_steps=int(train_cfg["n_steps"]),
+                batch_size=int(train_cfg["batch_size"]),
+                n_epochs=int(train_cfg["n_epochs"]),
+                gamma=float(train_cfg["gamma"]),
+                gae_lambda=float(train_cfg["gae_lambda"]),
+                clip_range=float(train_cfg["clip_range"]),
+                ent_coef=float(train_cfg["ent_coef"]),
+                vf_coef=float(train_cfg["vf_coef"]),
+                max_grad_norm=float(train_cfg["max_grad_norm"]),
+                target_kl=float(train_cfg["target_kl"]) if "target_kl" in train_cfg else None,
+                policy_kwargs=policy_kwargs,
+                verbose=1,
+                tensorboard_log=str(log_dir),
+                seed=actual_seed,
+                device="auto",
             )
+    except BaseException:  # noqa: BLE001 - close both allocated envs before propagating
+        env.close()
+        eval_env.close()
+        raise
+    try:
+        callback_items: list[Any] = [EnvironmentMetricsCallback()]
+        if anneal_from_stage is not None:
+            start_rewards = load_env_config(stage=anneal_from_stage)["rewards"]
+            callback_items.append(
+                RewardAnnealingCallback(
+                    start_weights=start_rewards,
+                    end_weights=env_cfg["rewards"],
+                    anneal_timesteps=int(anneal_timesteps or max(1, timesteps // 2)),
+                )
+            )
+        early_stop_callback = None
+        patience = int(train_cfg.get("early_stopping_patience_evals", 0))
+        if patience > 0:
+            early_stop_callback = StopTrainingOnNoModelImprovement(
+                max_no_improvement_evals=patience,
+                min_evals=int(train_cfg.get("early_stopping_min_evals", 2)),
+                verbose=1,
+            )
+        callback_items.extend(
+            [
+                CheckpointCallback(
+                    save_freq=max(1, int(train_cfg["checkpoint_freq"]) // n_envs),
+                    save_path=str(checkpoint_dir),
+                    name_prefix="ppo_stickman",
+                ),
+                EvalCallback(
+                    eval_env,
+                    best_model_save_path=str(checkpoint_dir / "best"),
+                    log_path=str(log_dir / "eval"),
+                    eval_freq=max(1, int(train_cfg["eval_freq"]) // n_envs),
+                    n_eval_episodes=int(train_cfg["eval_episodes"]),
+                    deterministic=True,
+                    render=False,
+                    callback_after_eval=early_stop_callback,
+                ),
+            ]
         )
-    early_stop_callback = None
-    patience = int(train_cfg.get("early_stopping_patience_evals", 0))
-    if patience > 0:
-        early_stop_callback = StopTrainingOnNoModelImprovement(
-            max_no_improvement_evals=patience,
-            min_evals=int(train_cfg.get("early_stopping_min_evals", 2)),
-            verbose=1,
-        )
-    callback_items.extend(
-        [
-            CheckpointCallback(
-                save_freq=max(1, int(train_cfg["checkpoint_freq"]) // n_envs),
-                save_path=str(checkpoint_dir),
-                name_prefix="ppo_stickman",
-            ),
-            EvalCallback(
-                eval_env,
-                best_model_save_path=str(checkpoint_dir / "best"),
-                log_path=str(log_dir / "eval"),
-                eval_freq=max(1, int(train_cfg["eval_freq"]) // n_envs),
-                n_eval_episodes=int(train_cfg["eval_episodes"]),
-                deterministic=True,
-                render=False,
-                callback_after_eval=early_stop_callback,
-            ),
-        ]
-    )
-    callbacks = CallbackList(callback_items)
+        callbacks = CallbackList(callback_items)
+    except BaseException:  # noqa: BLE001 - close both allocated envs before propagating
+        env.close()
+        eval_env.close()
+        raise
     try:
         model.learn(total_timesteps=timesteps, callback=callbacks, reset_num_timesteps=not bool(resume), progress_bar=False)
         final_path = checkpoint_dir / "final_model"
