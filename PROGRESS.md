@@ -2822,7 +2822,7 @@ Full Pytest: 180 passed
 Sensitive information scan: no findings
 ```
 
-Checkpoint commit: `<pending>`.
+Checkpoint commit: `6474f5121e9721e91a7e85439fcbcf7038955a3a`.
 
 ## Generated artifacts
 
