@@ -885,7 +885,12 @@ def main() -> None:
         run(args)
     except Exception as exc:  # noqa: BLE001 - worker must persist failures for the UI
         failure_payload = build_failure_status(run_dir, exc, traceback.format_exc())
-        atomic_json(run_dir / "status.json", failure_payload)
+        try:
+            atomic_json(run_dir / "status.json", failure_payload)
+        except OSError as persist_exc:
+            failure_payload["status_persist_error"] = (
+                f"{type(persist_exc).__name__}: {persist_exc}"
+            )
         emit_stdout_event("status", failure_payload, enabled=args.stream_stdout)
         raise
 

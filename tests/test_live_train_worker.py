@@ -1278,3 +1278,61 @@ def test_failure_status_rejects_invalid_timestep_progress(
 
     assert payload["state"] == "failed"
     assert payload["num_timesteps"] == 0
+
+
+def test_main_preserves_original_failure_when_status_persistence_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_dir = tmp_path / "run"
+    emitted: list[tuple[str, dict[str, object], bool]] = []
+
+    def fail_run(args: argparse.Namespace) -> None:
+        raise RuntimeError("trainer failure")
+
+    def fail_status_write(path: Path, payload: object) -> None:
+        raise PermissionError("simulated persistent status lock")
+
+    def capture_event(
+        event_type: str,
+        payload: dict[str, object],
+        *,
+        enabled: bool,
+    ) -> bool:
+        emitted.append((event_type, payload, enabled))
+        return True
+
+    monkeypatch.setattr(worker_module, "run", fail_run)
+    monkeypatch.setattr(worker_module, "atomic_json", fail_status_write)
+    monkeypatch.setattr(worker_module, "emit_stdout_event", capture_event)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "live_train_worker.py",
+            "--run-id",
+            "failure-finalization",
+            "--run-dir",
+            str(run_dir),
+            "--stage",
+            "1",
+            "--timesteps",
+            "64",
+            "--seed",
+            "1",
+            "--stream-stdout",
+        ],
+    )
+
+    with pytest.raises(RuntimeError, match="trainer failure"):
+        worker_module.main()
+
+    assert len(emitted) == 1
+    event_type, payload, enabled = emitted[0]
+    assert event_type == "status"
+    assert enabled is True
+    assert payload["state"] == "failed"
+    assert payload["error"] == "trainer failure"
+    assert payload["status_persist_error"] == (
+        "PermissionError: simulated persistent status lock"
+    )
