@@ -85,6 +85,12 @@ def train_ppo(
     n_envs = int(n_envs_value)
     if n_envs < 1:
         raise ValueError("n_envs must be at least 1")
+    eval_episodes_value = train_cfg.get("eval_episodes")
+    if isinstance(eval_episodes_value, bool) or not isinstance(eval_episodes_value, Integral):
+        raise ValueError("eval_episodes must be an integer")
+    eval_episodes = int(eval_episodes_value)
+    if eval_episodes < 1:
+        raise ValueError("eval_episodes must be at least 1")
     run_id = run_name or f"stage{stage}-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
     checkpoint_dir = PROJECT_ROOT / "checkpoints" / run_id
     log_dir = PROJECT_ROOT / "logs" / run_id
@@ -215,7 +221,7 @@ def train_ppo(
                     best_model_save_path=str(checkpoint_dir / "best"),
                     log_path=str(log_dir / "eval"),
                     eval_freq=max(1, int(train_cfg["eval_freq"]) // n_envs),
-                    n_eval_episodes=int(train_cfg["eval_episodes"]),
+                    n_eval_episodes=eval_episodes,
                     deterministic=True,
                     render=False,
                     callback_after_eval=early_stop_callback,
@@ -234,7 +240,7 @@ def train_ppo(
     finally:
         env.close()
         eval_env.close()
-    evaluation_episodes = min(5, int(train_cfg["eval_episodes"]))
+    evaluation_episodes = min(5, eval_episodes)
     final_zip = final_path.with_suffix(".zip")
     final_result = evaluate_policy_path(
         final_zip,
