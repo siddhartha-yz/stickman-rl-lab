@@ -2214,6 +2214,37 @@ Full Pytest: 118 passed
 
 Checkpoint commit: `417a760012bcfc71b1a6f56156ddc2ef0f75f4ee`.
 
+
+### Goal: validate PPO integer configuration before environment creation
+
+Acceptance criterion: integer PPO settings must reject booleans, fractions, missing fields, non-positive values, and malformed policy layers with clear errors before allocating the environment or constructing PPO.
+
+Observed baseline:
+
+- YAML `n_steps: true` was converted by `int(True)` into `1`.
+- The real PPO constructor then failed with the low-level assertion ``n_steps * n_envs` must be greater than 1`.
+- The environment had already been created before that error surfaced.
+
+Implemented:
+
+- Validate `n_steps`, `batch_size`, `n_epochs`, and `checkpoint_freq` as genuine integers with explicit minimums.
+- Validate `policy_layers` as a non-empty list of positive integers.
+- Normalize valid `numbers.Integral` values to built-in `int`.
+- Run integer validation before `make_vec_env()` and reuse normalized values directly.
+
+Verification:
+
+```text
+Worker tests: 47 passed
+n_steps: true after fix: ValueError n_steps must be an integer
+Environment created for invalid config: False
+Integral normalization and bool/fraction/missing/non-positive cases: passed
+Full Ruff: passed
+Full Pytest: 129 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
