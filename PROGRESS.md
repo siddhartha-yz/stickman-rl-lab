@@ -1972,6 +1972,35 @@ Full Pytest: 99 passed
 
 Checkpoint commit: `411029ee8a353cb927a7740a1b09186dd9352c86`.
 
+
+### Goal: clear stale last_info when the current step has no info
+
+Acceptance criterion: `last_info` must describe the current rollout step. An empty or invalid current info payload must clear previous success, distance, and diagnostic fields instead of leaving stale values visible in status and the desktop UI.
+
+Observed baseline:
+
+- The callback updated `last_info` only when the current info dictionary was non-empty.
+- After a previous `is_success=True, final_distance=0.1`, a later empty info step retained those values.
+- The desktop could therefore display a previous episode's result as if it belonged to the current step.
+
+Implemented:
+
+- Replace `last_info` on every step with the normalized current info object.
+- Empty or malformed info now produces `{}` and clears stale fields.
+- Preserve normal non-empty environment info unchanged.
+
+Verification:
+
+```text
+Worker tests: 30 passed
+Stale info baseline: {'is_success': True, 'final_distance': 0.1}
+Empty info after fix: {}
+Full Ruff: passed
+Full Pytest: 100 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
