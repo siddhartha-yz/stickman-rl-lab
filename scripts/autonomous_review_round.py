@@ -113,14 +113,14 @@ def append_progress(round_id: str, elapsed_minutes: float, records: list[dict[st
         summary = record.get("summary") or {}
         candidates = [summary.get("final_evaluation"), summary.get("best_evaluation")]
         valid = [item for item in candidates if isinstance(item, dict)]
-        best = max(valid, key=lambda item: (item.get("success_rate", -1), item.get("mean_reward", -1e18))) if valid else {}
+        best = max(valid, key=evaluation_key) if valid else {}
         lines.append(
             "| {name} | {exit_code} | {success:.3f} | {reward:.3f} | {distance:.3f} | `{checkpoint}` |".format(
                 name=record["name"],
                 exit_code=record["exit_code"],
-                success=float(best.get("success_rate", -1.0)),
-                reward=float(best.get("mean_reward", float("nan"))),
-                distance=float(best.get("mean_final_distance", float("nan"))),
+                success=finite_metric(best.get("success_rate"), -1.0),
+                reward=finite_metric(best.get("mean_reward"), float("nan")),
+                distance=finite_metric(best.get("mean_final_distance"), float("nan")),
                 checkpoint=summary.get("recommended_checkpoint", "not-produced"),
             )
         )
