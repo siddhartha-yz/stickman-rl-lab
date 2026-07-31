@@ -53,6 +53,12 @@ def train_ppo(
     stage = int(stage)
     if not 0 <= stage <= 5:
         raise ValueError("stage must be between 0 and 5")
+    if anneal_from_stage is not None:
+        if isinstance(anneal_from_stage, bool) or not isinstance(anneal_from_stage, Integral):
+            raise ValueError("anneal_from_stage must be an integer")
+        anneal_from_stage = int(anneal_from_stage)
+        if not 0 <= anneal_from_stage <= 5:
+            raise ValueError("anneal_from_stage must be between 0 and 5")
     train_cfg = load_train_config(train_config_path)
     env_cfg = load_env_config(stage=stage, config_path=env_config_path)
     seed_value = env_cfg.get("seed", 0) if seed is None else seed
