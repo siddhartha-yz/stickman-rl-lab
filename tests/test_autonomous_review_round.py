@@ -25,6 +25,40 @@ def test_result_key_uses_valid_candidate_when_other_metrics_are_malformed() -> N
     assert review_module.result_key(summary) == pytest.approx((0.5, 12.0, -1.25))
 
 
+def test_append_progress_uses_valid_candidate_when_other_metrics_are_malformed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    progress_path = tmp_path / "PROGRESS.md"
+    progress_path.write_text("# Progress\n", encoding="utf-8")
+    monkeypatch.setattr(review_module, "PROJECT_ROOT", tmp_path)
+    records = [
+        {
+            "name": "branch-a",
+            "exit_code": 0,
+            "summary": {
+                "final_evaluation": {
+                    "success_rate": "not-a-number",
+                    "mean_reward": {"bad": 1},
+                    "mean_final_distance": [],
+                },
+                "best_evaluation": {
+                    "success_rate": 0.5,
+                    "mean_reward": 12.0,
+                    "mean_final_distance": 1.25,
+                },
+                "recommended_checkpoint": "checkpoints/branch-a/model.zip",
+            },
+        }
+    ]
+
+    review_module.append_progress("round-a", 1.5, records)
+
+    text = progress_path.read_text(encoding="utf-8")
+    assert "| branch-a | 0 | 0.500 | 12.000 | 1.250 |" in text
+    assert "`checkpoints/branch-a/model.zip`" in text
+
+
 def test_main_stops_before_training_when_preflight_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
