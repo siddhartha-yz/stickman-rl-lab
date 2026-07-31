@@ -3031,8 +3031,6 @@ Full Pytest: 205 passed
 Sensitive information scan: no findings
 ```
 
-Checkpoint commit: `<pending>`.
-
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
