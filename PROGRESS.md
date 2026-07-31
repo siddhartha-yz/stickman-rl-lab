@@ -2524,6 +2524,68 @@ Sensitive information scan: no findings
 Checkpoint commit: `a033b5d7591e2783c29a2f919d554439ac982fd4`.
 
 
+### Goal: tolerate malformed autonomous review metrics during continuation ranking
+
+Acceptance criterion: malformed or non-finite numeric fields in one evaluation candidate must not abort continuation source selection. A valid alternative candidate should remain rankable, while invalid values use conservative fallback scores.
+
+Observed baseline:
+
+- `result_key()` converted success rate, mean reward, and mean final distance with direct `float(...)` calls.
+- A deterministic summary contained one malformed evaluation and one valid evaluation.
+- The malformed `success_rate: "not-a-number"` raised `ValueError` before the valid candidate could be selected.
+
+Implemented:
+
+- Add one finite metric conversion boundary that rejects booleans, conversion errors, overflow, NaN, and infinity.
+- Add one shared evaluation ranking key using conservative defaults for invalid fields.
+- Reuse the same key for candidate selection and the returned continuation ranking tuple.
+- Add a regression proving a valid best evaluation remains selectable beside a malformed final evaluation.
+
+Verification:
+
+```text
+Reproduction before fix: ValueError converting malformed success_rate
+Focused autonomous-review regressions: 3 passed
+Valid candidate ranking beside malformed candidate: passed
+Full Ruff: passed
+Full Pytest: 162 passed
+Sensitive information scan: no findings
+```
+
+Checkpoint commit: `fc406ea791d3a7e3df8b68818033d33d7e78e608`.
+
+
+### Goal: tolerate malformed autonomous review metrics while writing progress
+
+Acceptance criterion: malformed or non-finite evaluation metrics must not prevent the autonomous review from appending its durable PROGRESS table. A valid alternative evaluation should still supply the reported success, reward, and distance values.
+
+Observed baseline:
+
+- `append_progress()` ranked candidates with raw mixed-type tuple values and formatted metrics through direct `float(...)` calls.
+- A deterministic record contained one malformed evaluation and one valid evaluation.
+- Candidate selection raised `TypeError` while comparing a string success rate with a float, so the review round could not write its final progress entry.
+
+Implemented:
+
+- Reuse the validated evaluation ranking key for progress candidate selection.
+- Reuse the finite metric conversion boundary for success, reward, and distance formatting.
+- Preserve the existing Markdown table layout and recommended checkpoint field.
+- Add a regression proving the valid candidate is written beside a malformed alternative.
+
+Verification:
+
+```text
+Reproduction before fix: TypeError comparing malformed and numeric metrics
+Focused autonomous-review regressions: 4 passed
+Expected valid progress row written: passed
+Full Ruff: passed
+Full Pytest: 163 passed
+Sensitive information scan: no findings
+```
+
+Checkpoint commit: `1ba5dbe82f9c1434760b4d28fb42f3ec11ff0e11`.
+
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
