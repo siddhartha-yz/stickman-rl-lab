@@ -106,9 +106,15 @@ def _replace_with_retry(temporary: Path, destination: Path) -> None:
             time.sleep(0.005)
 
 
+def _temporary_json_path(path: Path) -> Path:
+    return path.with_name(
+        f"{path.name}.tmp.{os.getpid()}.{threading.get_ident()}"
+    )
+
+
 def _atomic_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary = _temporary_json_path(path)
     _write_text_with_retry(
         temporary,
         json.dumps(payload, ensure_ascii=False, indent=2),

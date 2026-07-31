@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import json
 import sys
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
 import pytest
 
+import scripts.live_train_worker as worker_module
 import stickman_rl.desktop.controller as controller_module
 from stickman_rl.desktop.controller import (
     DesktopEventBuffer,
@@ -28,7 +31,7 @@ def test_atomic_json_retries_transient_temporary_write_lock(
 
     def flaky_write_text(path: Path, *args: object, **kwargs: object) -> int:
         nonlocal locked_attempts
-        if path.name == "control.json.tmp" and locked_attempts < 2:
+        if path.name.startswith("control.json.tmp.") and locked_attempts < 2:
             locked_attempts += 1
             raise PermissionError("simulated temporary file lock")
         return original_write_text(path, *args, **kwargs)
@@ -39,6 +42,63 @@ def test_atomic_json_retries_transient_temporary_write_lock(
 
     assert locked_attempts == 2
     assert json.loads(destination.read_text(encoding="utf-8")) == {"paused": False}
+
+
+def test_controller_and_worker_atomic_writes_use_distinct_temporary_files(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    destination = tmp_path / "status.json"
+    temporary_prefix = destination.name + ".tmp"
+    original_write_text = Path.write_text
+    original_replace = Path.replace
+    writes_ready = threading.Barrier(2)
+    first_replace_done = threading.Event()
+    replace_lock = threading.Lock()
+    replace_index = 0
+
+    def coordinated_write_text(path: Path, *args: object, **kwargs: object) -> int:
+        result = original_write_text(path, *args, **kwargs)
+        if path.name.startswith(temporary_prefix):
+            writes_ready.wait(timeout=5.0)
+        return result
+
+    def coordinated_replace(path: Path, destination_path: Path) -> Path:
+        nonlocal replace_index
+        if path.name.startswith(temporary_prefix):
+            with replace_lock:
+                current_index = replace_index
+                replace_index += 1
+            if current_index == 0:
+                result = original_replace(path, destination_path)
+                first_replace_done.set()
+                return result
+            assert first_replace_done.wait(timeout=5.0)
+        return original_replace(path, destination_path)
+
+    monkeypatch.setattr(Path, "write_text", coordinated_write_text)
+    monkeypatch.setattr(Path, "replace", coordinated_replace)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [
+            executor.submit(
+                controller_module._atomic_json,
+                destination,
+                {"writer": "controller"},
+            ),
+            executor.submit(
+                worker_module.atomic_json,
+                destination,
+                {"writer": "worker"},
+            ),
+        ]
+        for future in futures:
+            future.result(timeout=5.0)
+
+    assert json.loads(destination.read_text(encoding="utf-8")) in [
+        {"writer": "controller"},
+        {"writer": "worker"},
+    ]
 
 
 def test_read_json_file_returns_default_for_non_utf8_bytes(tmp_path: Path) -> None:
