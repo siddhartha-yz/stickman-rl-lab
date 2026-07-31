@@ -436,6 +436,34 @@ def test_on_step_tolerates_malformed_episode_info(
     assert episode["final_distance"] == 0.0
 
 
+def test_control_parses_boolean_strings_without_python_truthiness(tmp_path: Path) -> None:
+    callback = LiveTrainingCallback(run_dir=tmp_path, total_timesteps=64)
+    callback.control_path.write_text(
+        json.dumps({"paused": "false", "stop": "0", "save_request": None}),
+        encoding="utf-8",
+    )
+
+    assert callback._control() == {
+        "paused": False,
+        "stop": False,
+        "save_request": None,
+    }
+
+    callback.control_path.write_text(
+        json.dumps({"paused": "yes", "stop": "on", "save_request": None}),
+        encoding="utf-8",
+    )
+    assert callback._control()["paused"] is True
+    assert callback.last_control["stop"] is True
+
+    callback.control_path.write_text(
+        json.dumps({"paused": "unknown", "stop": {}, "save_request": None}),
+        encoding="utf-8",
+    )
+    assert callback._control()["paused"] is True
+    assert callback.last_control["stop"] is True
+
+
 def test_control_read_retries_transient_permission_error(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
