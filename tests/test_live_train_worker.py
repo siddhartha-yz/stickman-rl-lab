@@ -58,6 +58,40 @@ def test_json_safe_handles_recursive_containers() -> None:
     assert json_safe([shared, shared]) == [{"value": 1}, {"value": 1}]
 
 
+def test_json_safe_handles_unprintable_keys_and_excessive_depth(tmp_path: Path) -> None:
+    class BadKey:
+        def __str__(self) -> str:
+            raise RuntimeError("simulated key stringification failure")
+
+    nested: list[object] = []
+    current = nested
+    for _ in range(worker_module.JSON_SAFE_MAX_DEPTH + 10):
+        child: list[object] = []
+        current.append(child)
+        current = child
+
+    safe = json_safe({BadKey(): 1, "nested": nested})
+    encoded = json.dumps(safe, ensure_ascii=False, allow_nan=False)
+
+    assert any(key.startswith("<unprintable-key:") for key in safe)
+    assert "<max-depth>" in encoded
+
+    class FakeLogger:
+        name_to_value: dict[str, object] = {}
+
+    class FakeModel:
+        logger = FakeLogger()
+
+    callback = LiveTrainingCallback(run_dir=tmp_path, total_timesteps=64)
+    callback.model = FakeModel()  # type: ignore[assignment]
+    callback.num_timesteps = 1
+    callback.last_info = {BadKey(): nested}
+
+    payload = callback._status_payload()
+    json.dumps(payload, ensure_ascii=False, allow_nan=False)
+    assert "<max-depth>" in json.dumps(payload["last_info"])
+
+
 def test_json_safe_converts_unsupported_objects_to_stable_text() -> None:
     class CustomInfo:
         pass
@@ -94,7 +128,9 @@ def test_emit_stdout_event_returns_false_for_broken_pipe(
     assert not emit_stdout_event("status", {"state": "running"}, enabled=True)
 
 
-def test_emit_stdout_event_returns_false_for_payload_sanitization_failure() -> None:
+def test_emit_stdout_event_sanitizes_malformed_payloads(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     class BadKey:
         def __str__(self) -> str:
             raise RuntimeError("simulated key stringification failure")
@@ -106,8 +142,11 @@ def test_emit_stdout_event_returns_false_for_payload_sanitization_failure() -> N
         current.append(child)
         current = child
 
-    assert not emit_stdout_event("status", {BadKey(): 1}, enabled=True)
-    assert not emit_stdout_event("frame", nested, enabled=True)
+    assert emit_stdout_event("status", {BadKey(): 1}, enabled=True)
+    assert emit_stdout_event("frame", nested, enabled=True)
+    output = capsys.readouterr().out
+    assert "<unprintable-key:" in output
+    assert "<max-depth>" in output
 
 
 def test_logger_metrics_ignore_non_scalar_and_invalid_values(tmp_path: Path) -> None:
