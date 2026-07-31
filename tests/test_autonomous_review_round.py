@@ -8,6 +8,23 @@ import pytest
 import scripts.autonomous_review_round as review_module
 
 
+def test_result_key_uses_valid_candidate_when_other_metrics_are_malformed() -> None:
+    summary = {
+        "final_evaluation": {
+            "success_rate": "not-a-number",
+            "mean_reward": {"bad": 1},
+            "mean_final_distance": [],
+        },
+        "best_evaluation": {
+            "success_rate": 0.5,
+            "mean_reward": 12.0,
+            "mean_final_distance": 1.25,
+        },
+    }
+
+    assert review_module.result_key(summary) == pytest.approx((0.5, 12.0, -1.25))
+
+
 def test_main_stops_before_training_when_preflight_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

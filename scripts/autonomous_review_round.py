@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import subprocess
 import sys
@@ -67,6 +68,24 @@ def load_summary(run_name: str) -> dict[str, Any] | None:
         return None
 
 
+def finite_metric(value: Any, default: float) -> float:
+    if isinstance(value, bool):
+        return default
+    try:
+        parsed = float(value)
+    except (OverflowError, TypeError, ValueError):
+        return default
+    return parsed if math.isfinite(parsed) else default
+
+
+def evaluation_key(item: dict[str, Any]) -> tuple[float, float, float]:
+    return (
+        finite_metric(item.get("success_rate"), -1.0),
+        finite_metric(item.get("mean_reward"), float("-inf")),
+        -finite_metric(item.get("mean_final_distance"), float("inf")),
+    )
+
+
 def result_key(summary: dict[str, Any] | None) -> tuple[float, float, float]:
     if not summary:
         return (-1.0, float("-inf"), float("-inf"))
@@ -74,19 +93,7 @@ def result_key(summary: dict[str, Any] | None) -> tuple[float, float, float]:
     valid = [item for item in candidates if isinstance(item, dict)]
     if not valid:
         return (-1.0, float("-inf"), float("-inf"))
-    best = max(
-        valid,
-        key=lambda item: (
-            float(item.get("success_rate", -1.0)),
-            float(item.get("mean_reward", float("-inf"))),
-            -float(item.get("mean_final_distance", float("inf"))),
-        ),
-    )
-    return (
-        float(best.get("success_rate", -1.0)),
-        float(best.get("mean_reward", float("-inf"))),
-        -float(best.get("mean_final_distance", float("inf"))),
-    )
+    return evaluation_key(max(valid, key=evaluation_key))
 
 
 def append_progress(round_id: str, elapsed_minutes: float, records: list[dict[str, Any]]) -> None:
