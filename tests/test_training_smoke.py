@@ -8,6 +8,39 @@ import stickman_rl.training as training_module
 from stickman_rl.env import StickmanReachEnv
 
 
+@pytest.mark.parametrize("timesteps", [True, 1.5])
+def test_train_ppo_rejects_noninteger_timesteps_before_run_creation(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    timesteps: object,
+) -> None:
+    def unexpected_make_vec_env(*args: object, **kwargs: object) -> None:
+        del args, kwargs
+        raise AssertionError("environment must not be created for invalid timesteps")
+
+    monkeypatch.setattr(training_module, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        training_module,
+        "load_train_config",
+        lambda _path: {"total_timesteps": 1_000_000},
+    )
+    monkeypatch.setattr(
+        training_module,
+        "load_env_config",
+        lambda **_kwargs: {"seed": 0},
+    )
+    monkeypatch.setattr(training_module, "make_vec_env", unexpected_make_vec_env)
+
+    with pytest.raises(ValueError, match="total_timesteps must be an integer"):
+        training_module.train_ppo(
+            total_timesteps=timesteps,  # type: ignore[arg-type]
+            run_name="invalid-timesteps",
+        )
+
+    assert not (tmp_path / "checkpoints").exists()
+    assert not (tmp_path / "logs").exists()
+
+
 @pytest.mark.parametrize("timesteps", [0, -1])
 def test_train_ppo_rejects_nonpositive_timesteps_before_run_creation(
     tmp_path,

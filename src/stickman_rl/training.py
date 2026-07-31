@@ -7,6 +7,7 @@ import platform
 import sys
 from datetime import datetime
 from importlib.metadata import PackageNotFoundError, version
+from numbers import Integral
 from pathlib import Path
 from typing import Any
 
@@ -51,6 +52,8 @@ def train_ppo(
     env_cfg = load_env_config(stage=stage, config_path=env_config_path)
     actual_seed = int(env_cfg.get("seed", 0) if seed is None else seed)
     timestep_value = train_cfg["total_timesteps"] if total_timesteps is None else total_timesteps
+    if isinstance(timestep_value, bool) or not isinstance(timestep_value, Integral):
+        raise ValueError("total_timesteps must be an integer")
     timesteps = int(timestep_value)
     if timesteps < 1:
         raise ValueError("total_timesteps must be at least 1")
