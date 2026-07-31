@@ -101,13 +101,14 @@ def finite_float(value: Any, default: float = 0.0) -> float:
 
 
 def nonnegative_int(value: Any, default: int = 0) -> int:
+    fallback = max(0, default)
     if isinstance(value, bool):
-        return default
+        return fallback
     try:
         parsed = int(value)
     except (OverflowError, TypeError, ValueError):
-        return default
-    return max(0, parsed)
+        return fallback
+    return parsed if parsed >= 0 else fallback
 
 
 def first_sequence_item(value: Any) -> Any:

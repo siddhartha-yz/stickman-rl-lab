@@ -2369,6 +2369,36 @@ Full Pytest: 156 passed
 
 Checkpoint commit: `59618e9e1b5c905d2a4f2210035fe61d6b8948df`.
 
+
+### Goal: preserve accumulated episode length for invalid negative summaries
+
+Acceptance criterion: a malformed negative episode length from wrapper metadata must not be recorded as a zero-length episode. The callback should use its already accumulated current episode step as the fallback, while valid non-negative episode lengths remain unchanged.
+
+Observed baseline:
+
+- A completed episode had five callback steps already accumulated.
+- Injected Monitor metadata reported `l=-7`.
+- The shared `nonnegative_int(value, default)` helper returned zero instead of its supplied fallback, so the persisted episode length became impossible.
+
+Implemented:
+
+- Normalize the helper fallback itself to a non-negative value.
+- Return that fallback for booleans, conversion failures, and parsed negative integers.
+- Preserve any successfully parsed non-negative integer without treating the fallback as a minimum.
+- Add a callback regression proving a negative metadata length falls back to the five accumulated steps.
+
+Verification:
+
+```text
+Reproduction before fix: recorded episode length 0 instead of 5
+Focused fallback regressions: 4 passed
+Sensitive information scan: no findings
+Full Ruff: passed
+Full Pytest: 157 passed
+```
+
+Checkpoint commit: pending.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`

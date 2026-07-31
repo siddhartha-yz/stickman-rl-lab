@@ -1024,6 +1024,34 @@ def test_on_step_tolerates_malformed_episode_info(
     assert episode["final_distance"] == 0.0
 
 
+def test_on_step_uses_accumulated_length_for_negative_episode_length(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    callback = LiveTrainingCallback(run_dir=tmp_path, total_timesteps=64)
+    callback.num_timesteps = 5
+    callback.episode_step = 4
+    callback.locals = {
+        "rewards": [1.0],
+        "infos": [
+            {
+                "episode": {"r": 1.0, "l": -7},
+                "is_success": False,
+                "final_distance": 2.0,
+            }
+        ],
+        "dones": [True],
+    }
+    monkeypatch.setattr(callback, "_write_metrics", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(callback, "_write_frame", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(callback, "_write_status", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(callback, "_handle_control", lambda: True)
+
+    assert callback._on_step()
+
+    assert callback.episodes[0]["length"] == 5
+
+
 def test_control_parses_boolean_strings_without_python_truthiness(tmp_path: Path) -> None:
     callback = LiveTrainingCallback(run_dir=tmp_path, total_timesteps=64)
     callback.control_path.write_text(
