@@ -2307,6 +2307,37 @@ Full Pytest: 152 passed
 
 Checkpoint commit: `554399a11702d4e80570b2619b57efe6a19ece44`.
 
+
+### Goal: normalize invalid failure timestep progress
+
+Acceptance criterion: persisted `num_timesteps` values used while finalizing a failed worker must not invent progress or raise a second exception. Genuine non-negative integer-like values should remain available, while booleans, negative values, and non-finite values must fall back to zero.
+
+Observed baseline:
+
+- `num_timesteps: true` was converted by `int(True)` into one completed step.
+- Negative persisted values remained negative in the final failed status.
+- A non-finite value raised `OverflowError` inside the top-level failure handler, potentially masking the original trainer exception.
+
+Implemented:
+
+- Reject booleans in the shared worker `nonnegative_int()` boundary.
+- Reuse that boundary when building final failure status instead of performing a separate direct `int()` conversion.
+- Preserve valid durable progress while clamping negative values and safely defaulting conversion failures to zero.
+- Add focused regressions for boolean, negative, and non-finite persisted progress.
+
+Verification:
+
+```text
+TrainingRequest integer-boundary recheck: 7 passed
+Worker failure-status regressions: 5 passed
+Invalid request run directories after rejection: 0
+Sensitive information scan: no findings
+Full Ruff: passed
+Full Pytest: 155 passed
+```
+
+Checkpoint commit: pending.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`

@@ -1262,3 +1262,19 @@ def test_failure_status_defaults_to_zero_without_valid_status(tmp_path: Path) ->
 
     assert payload["state"] == "failed"
     assert payload["num_timesteps"] == 0
+
+
+@pytest.mark.parametrize("num_timesteps", [True, -1, float("inf")])
+def test_failure_status_rejects_invalid_timestep_progress(
+    tmp_path: Path,
+    num_timesteps: object,
+) -> None:
+    (tmp_path / "status.json").write_text(
+        json.dumps({"state": "running", "num_timesteps": num_timesteps}),
+        encoding="utf-8",
+    )
+
+    payload = build_failure_status(tmp_path, RuntimeError("boom"), "traceback text")
+
+    assert payload["state"] == "failed"
+    assert payload["num_timesteps"] == 0

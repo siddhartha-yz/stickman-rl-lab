@@ -101,6 +101,8 @@ def finite_float(value: Any, default: float = 0.0) -> float:
 
 
 def nonnegative_int(value: Any, default: int = 0) -> int:
+    if isinstance(value, bool):
+        return default
     try:
         parsed = int(value)
     except (OverflowError, TypeError, ValueError):
@@ -855,10 +857,7 @@ def build_failure_status(
 ) -> dict[str, Any]:
     loaded = read_json_with_retry(run_dir / "status.json", {})
     previous: dict[str, Any] = loaded if isinstance(loaded, dict) else {}
-    try:
-        num_timesteps = int(previous.get("num_timesteps", 0) or 0)
-    except (TypeError, ValueError):
-        num_timesteps = 0
+    num_timesteps = nonnegative_int(previous.get("num_timesteps", 0))
     return {
         **previous,
         "state": "failed",
