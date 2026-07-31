@@ -264,13 +264,16 @@ def main() -> int:
             exit_code = run_command(command, log_handle, name)
             records.append({"name": name, "exit_code": exit_code, "summary": load_summary(name)})
 
+        final_exit_code = 0
         final_checks = [
             ("final-ruff", [python, "-m", "ruff", "check", "src", "scripts", "tests"]),
             ("final-pytest", [python, "-m", "pytest", "-q"]),
             ("final-stage3-check", [python, "scripts/check_env.py", "--stage", "3", "--steps", "1000"]),
         ]
         for label, command in final_checks:
-            run_command(command, log_handle, label)
+            exit_code = run_command(command, log_handle, label)
+            if final_exit_code == 0 and exit_code != 0:
+                final_exit_code = exit_code
 
     elapsed_minutes = (time.monotonic() - start_monotonic) / 60.0
     append_progress(round_id, elapsed_minutes, records)
@@ -289,7 +292,7 @@ def main() -> int:
         encoding="utf-8",
     )
     print(f"Autonomous review completed: {round_id}, elapsed={elapsed_minutes:.1f} minutes", flush=True)
-    return 0
+    return final_exit_code
 
 
 if __name__ == "__main__":
