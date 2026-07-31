@@ -90,11 +90,15 @@ def train_ppo(
 
     n_envs = int(train_cfg.get("n_envs", 1))
     env = make_vec_env(_make_monitored_env(stage, actual_seed, env_config_path), n_envs=n_envs, seed=actual_seed)
-    eval_env = make_vec_env(
-        _make_monitored_env(stage, actual_seed + 10000, env_config_path),
-        n_envs=1,
-        seed=actual_seed + 10000,
-    )
+    try:
+        eval_env = make_vec_env(
+            _make_monitored_env(stage, actual_seed + 10000, env_config_path),
+            n_envs=1,
+            seed=actual_seed + 10000,
+        )
+    except BaseException:  # noqa: BLE001 - release the allocated training env before propagating
+        env.close()
+        raise
     policy_kwargs = {
         "net_arch": list(train_cfg.get("policy_layers", [256, 256])),
         "log_std_init": float(train_cfg.get("log_std_init", 0.0)),
