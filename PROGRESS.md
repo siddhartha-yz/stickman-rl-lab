@@ -2214,6 +2214,99 @@ Full Pytest: 118 passed
 
 Checkpoint commit: `417a760012bcfc71b1a6f56156ddc2ef0f75f4ee`.
 
+
+### Goal: validate PPO integer configuration before environment creation
+
+Acceptance criterion: integer PPO settings must reject booleans, fractions, missing fields, non-positive values, and malformed policy layers with clear errors before allocating the environment or constructing PPO.
+
+Observed baseline:
+
+- YAML `n_steps: true` was converted by `int(True)` into `1`.
+- The real PPO constructor then failed with the low-level assertion ``n_steps * n_envs` must be greater than 1`.
+- The environment had already been created before that error surfaced.
+
+Implemented:
+
+- Validate `n_steps`, `batch_size`, `n_epochs`, and `checkpoint_freq` as genuine integers with explicit minimums.
+- Validate `policy_layers` as a non-empty list of positive integers.
+- Normalize valid `numbers.Integral` values to built-in `int`.
+- Run integer validation before `make_vec_env()` and reuse normalized values directly.
+
+Verification:
+
+```text
+Worker tests: 47 passed
+n_steps: true after fix: ValueError n_steps must be an integer
+Environment created for invalid config: False
+Integral normalization and bool/fraction/missing/non-positive cases: passed
+Full Ruff: passed
+Full Pytest: 129 passed
+```
+
+Checkpoint commit: `b7f37b00735becd5502a9e12cb233d4b544e794e`.
+
+
+### Goal: validate PPO floating-point configuration before environment creation
+
+Acceptance criterion: PPO float settings must reject booleans, missing values, NaN/Infinity, and unsupported ranges with clear errors before allocating the environment or constructing the optimizer.
+
+Observed baseline:
+
+- YAML `learning_rate: .nan` reached the real PPO constructor.
+- PPO failed with `ValueError: Invalid learning rate: nan` only after the environment had been created.
+- Boolean and out-of-range values were also silently accepted by direct `float(...)` conversion.
+
+Implemented:
+
+- Validate learning rate, gamma, GAE lambda, clip range, entropy/value coefficients, max gradient norm, initial log standard deviation, and optional target KL.
+- Reject booleans and require finite real values.
+- Enforce positive or probability-range constraints appropriate to each field.
+- Normalize valid real values to built-in `float` and validate before `make_vec_env()`.
+
+Verification:
+
+```text
+Worker tests: 63 passed
+learning_rate: .nan after fix: ValueError learning_rate must be finite
+Environment created for invalid float config: False
+Boolean/non-finite/missing/out-of-range cases: passed
+Full Ruff: passed
+Full Pytest: 145 passed
+```
+
+Checkpoint commit: `73317979d18ab8070bdb6ad3f776e9c91d0798cf`.
+
+
+### Goal: reject unsupported live worker mode configuration
+
+Acceptance criterion: the desktop live worker is intentionally PPO with one environment. Configurations declaring another algorithm or environment count must fail clearly before environment allocation instead of being silently ignored.
+
+Observed baseline:
+
+- A config declaring `algorithm: SAC` still constructed PPO.
+- A config declaring `n_envs: 8` still called `make_vec_env(..., n_envs=1)`.
+- Persisted configuration could therefore disagree with the training process that actually ran.
+
+Implemented:
+
+- Accept algorithm values only when they normalize case-insensitively to `PPO`.
+- Require `n_envs` to be a genuine integer exactly equal to `1`.
+- Reject booleans, fractional counts, unsupported algorithms, and multi-environment values.
+- Normalize supported values to `PPO` and `1` before all other config validation and before `make_vec_env()`.
+
+Verification:
+
+```text
+Worker tests: 70 passed
+SAC / 8-env config after fix: ValueError algorithm must be PPO for live training
+Environment created for unsupported mode: False
+Supported normalization: {'algorithm': 'PPO', 'n_envs': 1}
+Full Ruff: passed
+Full Pytest: 152 passed
+```
+
+Checkpoint commit: `554399a11702d4e80570b2619b57efe6a19ece44`.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`

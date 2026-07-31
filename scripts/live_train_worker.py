@@ -7,6 +7,7 @@ import time
 import traceback
 from collections import deque
 from datetime import datetime
+from numbers import Integral, Real
 from pathlib import Path
 from typing import Any
 
@@ -152,6 +153,151 @@ def action_vector(value: Any) -> list[float]:
     elif actions.ndim > 1:
         actions = actions[0]
     return [finite_float(item) for item in actions.reshape(-1)]
+
+
+def validate_live_worker_mode_config(config: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(config)
+    algorithm = config.get("algorithm", "PPO")
+    if not isinstance(algorithm, str) or algorithm.strip().upper() != "PPO":
+        raise ValueError("algorithm must be PPO for live training")
+    n_envs = config.get("n_envs", 1)
+    if isinstance(n_envs, bool) or not isinstance(n_envs, Integral):
+        raise ValueError("n_envs must be an integer")
+    if int(n_envs) != 1:
+        raise ValueError("n_envs must be 1 for live training")
+    normalized["algorithm"] = "PPO"
+    normalized["n_envs"] = 1
+    return normalized
+
+
+def _train_config_int(
+    config: dict[str, Any],
+    key: str,
+    minimum: int,
+    *,
+    default: int | None = None,
+) -> int:
+    if key not in config:
+        if default is None:
+            raise ValueError(f"Training config is missing {key}")
+        value: Any = default
+    else:
+        value = config[key]
+    if isinstance(value, bool) or not isinstance(value, Integral):
+        raise ValueError(f"{key} must be an integer")
+    normalized = int(value)
+    if normalized < minimum:
+        raise ValueError(f"{key} must be at least {minimum}")
+    return normalized
+
+
+def validate_ppo_integer_config(config: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(config)
+    normalized["n_steps"] = _train_config_int(config, "n_steps", 2)
+    normalized["batch_size"] = _train_config_int(config, "batch_size", 2)
+    normalized["n_epochs"] = _train_config_int(config, "n_epochs", 1)
+    normalized["checkpoint_freq"] = _train_config_int(
+        config,
+        "checkpoint_freq",
+        1,
+        default=5_000,
+    )
+    raw_layers = config.get("policy_layers", [256, 256])
+    if not isinstance(raw_layers, list) or not raw_layers:
+        raise ValueError("policy_layers must be a non-empty list of integers")
+    layers: list[int] = []
+    for index, value in enumerate(raw_layers):
+        if isinstance(value, bool) or not isinstance(value, Integral):
+            raise ValueError(f"policy_layers[{index}] must be an integer")
+        layer = int(value)
+        if layer < 1:
+            raise ValueError(f"policy_layers[{index}] must be at least 1")
+        layers.append(layer)
+    normalized["policy_layers"] = layers
+    return normalized
+
+
+_CONFIG_MISSING = object()
+
+
+def _train_config_float(
+    config: dict[str, Any],
+    key: str,
+    *,
+    default: Any = _CONFIG_MISSING,
+    minimum: float | None = None,
+    maximum: float | None = None,
+    minimum_inclusive: bool = True,
+) -> float | None:
+    if key not in config:
+        if default is _CONFIG_MISSING:
+            raise ValueError(f"Training config is missing {key}")
+        value = default
+    else:
+        value = config[key]
+    if value is None and default is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ValueError(f"{key} must be a number")
+    normalized = float(value)
+    if not np.isfinite(normalized):
+        raise ValueError(f"{key} must be finite")
+    if minimum is not None:
+        below_minimum = normalized < minimum if minimum_inclusive else normalized <= minimum
+        if below_minimum:
+            raise ValueError(f"{key} is outside the supported range")
+    if maximum is not None and normalized > maximum:
+        raise ValueError(f"{key} is outside the supported range")
+    return normalized
+
+
+def validate_ppo_float_config(config: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(config)
+    normalized["learning_rate"] = _train_config_float(
+        config,
+        "learning_rate",
+        minimum=0.0,
+        minimum_inclusive=False,
+    )
+    normalized["gamma"] = _train_config_float(
+        config,
+        "gamma",
+        minimum=0.0,
+        maximum=1.0,
+    )
+    normalized["gae_lambda"] = _train_config_float(
+        config,
+        "gae_lambda",
+        minimum=0.0,
+        maximum=1.0,
+    )
+    normalized["clip_range"] = _train_config_float(
+        config,
+        "clip_range",
+        minimum=0.0,
+        minimum_inclusive=False,
+    )
+    normalized["ent_coef"] = _train_config_float(config, "ent_coef", minimum=0.0)
+    normalized["vf_coef"] = _train_config_float(config, "vf_coef", minimum=0.0)
+    normalized["max_grad_norm"] = _train_config_float(
+        config,
+        "max_grad_norm",
+        minimum=0.0,
+        minimum_inclusive=False,
+    )
+    normalized["log_std_init"] = _train_config_float(
+        config,
+        "log_std_init",
+        default=0.0,
+    )
+    normalized["target_kl"] = _train_config_float(
+        config,
+        "target_kl",
+        default=None,
+        minimum=0.0,
+        minimum_inclusive=False,
+    )
+    return normalized
 
 
 def json_safe(
@@ -641,28 +787,32 @@ def run(args: argparse.Namespace) -> None:
         atomic_json(run_dir / "control.json", {"paused": False, "stop": False, "save_request": None})
     atomic_json(status_path, {"state": "starting", **request, "pid": os.getpid(), "num_timesteps": 0})
 
-    train_cfg = load_train_config(args.train_config)
+    train_cfg = validate_ppo_float_config(
+        validate_ppo_integer_config(
+            validate_live_worker_mode_config(load_train_config(args.train_config))
+        )
+    )
     actual_seed = int(args.seed)
     env = make_vec_env(monitored_env(args.stage, actual_seed, args.env_config), n_envs=1, seed=actual_seed)
     try:
         policy_kwargs = {
-            "net_arch": list(train_cfg.get("policy_layers", [256, 256])),
-            "log_std_init": float(train_cfg.get("log_std_init", 0.0)),
+            "net_arch": train_cfg["policy_layers"],
+            "log_std_init": train_cfg["log_std_init"],
         }
         model = PPO(
             "MlpPolicy",
             env,
-            learning_rate=float(train_cfg["learning_rate"]),
-            n_steps=int(train_cfg["n_steps"]),
-            batch_size=int(train_cfg["batch_size"]),
-            n_epochs=int(train_cfg["n_epochs"]),
-            gamma=float(train_cfg["gamma"]),
-            gae_lambda=float(train_cfg["gae_lambda"]),
-            clip_range=float(train_cfg["clip_range"]),
-            ent_coef=float(train_cfg["ent_coef"]),
-            vf_coef=float(train_cfg["vf_coef"]),
-            max_grad_norm=float(train_cfg["max_grad_norm"]),
-            target_kl=float(train_cfg["target_kl"]) if "target_kl" in train_cfg else None,
+            learning_rate=train_cfg["learning_rate"],
+            n_steps=train_cfg["n_steps"],
+            batch_size=train_cfg["batch_size"],
+            n_epochs=train_cfg["n_epochs"],
+            gamma=train_cfg["gamma"],
+            gae_lambda=train_cfg["gae_lambda"],
+            clip_range=train_cfg["clip_range"],
+            ent_coef=train_cfg["ent_coef"],
+            vf_coef=train_cfg["vf_coef"],
+            max_grad_norm=train_cfg["max_grad_norm"],
+            target_kl=train_cfg["target_kl"],
             policy_kwargs=policy_kwargs,
             verbose=0,
             tensorboard_log=str(run_dir / "tensorboard"),
@@ -675,7 +825,7 @@ def run(args: argparse.Namespace) -> None:
             stream_stdout=args.stream_stdout,
         )
         checkpoint_callback = CheckpointCallback(
-            save_freq=max(1, int(train_cfg.get("checkpoint_freq", 5000))),
+            save_freq=train_cfg["checkpoint_freq"],
             save_path=str(run_dir / "checkpoints"),
             name_prefix="ppo_live",
         )
