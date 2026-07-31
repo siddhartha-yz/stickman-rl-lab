@@ -157,6 +157,123 @@ def test_action_vector_normalizes_and_rejects_malformed_values() -> None:
     assert worker_module.action_vector([[1, 2], [3]]) == []
 
 
+def test_validate_ppo_integer_config_normalizes_integral_values() -> None:
+    validated = worker_module.validate_ppo_integer_config(
+        {
+            "n_steps": worker_module.np.int64(32),
+            "batch_size": worker_module.np.int64(16),
+            "n_epochs": worker_module.np.int64(2),
+            "checkpoint_freq": worker_module.np.int64(10),
+            "policy_layers": [worker_module.np.int64(32), worker_module.np.int64(16)],
+        }
+    )
+
+    assert validated["n_steps"] == 32
+    assert validated["batch_size"] == 16
+    assert validated["n_epochs"] == 2
+    assert validated["checkpoint_freq"] == 10
+    assert validated["policy_layers"] == [32, 16]
+    assert all(
+        type(validated[key]) is int
+        for key in ("n_steps", "batch_size", "n_epochs", "checkpoint_freq")
+    )
+    assert all(type(value) is int for value in validated["policy_layers"])
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("n_steps", True, "n_steps must be an integer"),
+        ("n_steps", 1, "n_steps must be at least 2"),
+        ("batch_size", 16.5, "batch_size must be an integer"),
+        ("batch_size", 1, "batch_size must be at least 2"),
+        ("n_epochs", False, "n_epochs must be an integer"),
+        ("n_epochs", 0, "n_epochs must be at least 1"),
+        ("checkpoint_freq", False, "checkpoint_freq must be an integer"),
+        ("checkpoint_freq", 0, "checkpoint_freq must be at least 1"),
+    ],
+)
+def test_validate_ppo_integer_config_rejects_invalid_values(
+    field: str,
+    value: object,
+    message: str,
+) -> None:
+    config: dict[str, object] = {
+        "n_steps": 32,
+        "batch_size": 16,
+        "n_epochs": 2,
+        "checkpoint_freq": 10,
+        "policy_layers": [32, 16],
+    }
+    config[field] = value
+
+    with pytest.raises(ValueError, match=message):
+        worker_module.validate_ppo_integer_config(config)
+
+
+def test_validate_ppo_integer_config_rejects_missing_and_invalid_layers() -> None:
+    base: dict[str, object] = {
+        "n_steps": 32,
+        "batch_size": 16,
+        "n_epochs": 2,
+        "checkpoint_freq": 10,
+        "policy_layers": [32, 16],
+    }
+    missing = dict(base)
+    missing.pop("n_steps")
+    with pytest.raises(ValueError, match="Training config is missing n_steps"):
+        worker_module.validate_ppo_integer_config(missing)
+
+    for layers, message in [
+        ("32,16", "policy_layers must be a non-empty list of integers"),
+        ([], "policy_layers must be a non-empty list of integers"),
+        ([32, True], r"policy_layers\[1\] must be an integer"),
+        ([32, 0], r"policy_layers\[1\] must be at least 1"),
+    ]:
+        config = {**base, "policy_layers": layers}
+        with pytest.raises(ValueError, match=message):
+            worker_module.validate_ppo_integer_config(config)
+
+
+def test_run_rejects_invalid_integer_config_before_environment_creation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        worker_module,
+        "load_train_config",
+        lambda _path: {
+            "n_steps": True,
+            "batch_size": 16,
+            "n_epochs": 1,
+            "policy_layers": [32, 32],
+        },
+    )
+    environment_created = False
+
+    def fail_if_environment_created(*_args: object, **_kwargs: object) -> None:
+        nonlocal environment_created
+        environment_created = True
+        raise AssertionError("environment should not be created")
+
+    monkeypatch.setattr(worker_module, "make_vec_env", fail_if_environment_created)
+    args = argparse.Namespace(
+        run_id="invalid-integer-config",
+        run_dir=str(tmp_path / "run"),
+        stage=1,
+        timesteps=64,
+        seed=1,
+        train_config="configs/train_smoke.yaml",
+        env_config=None,
+        stream_stdout=False,
+    )
+
+    with pytest.raises(ValueError, match="n_steps must be an integer"):
+        worker_module.run(args)
+
+    assert not environment_created
+
+
 def test_live_frame_downgrades_malformed_actions(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
