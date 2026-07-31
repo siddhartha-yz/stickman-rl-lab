@@ -2369,6 +2369,66 @@ Full Pytest: 156 passed
 
 Checkpoint commit: `59618e9e1b5c905d2a4f2210035fe61d6b8948df`.
 
+
+### Goal: preserve accumulated episode length for invalid negative summaries
+
+Acceptance criterion: a malformed negative episode length from wrapper metadata must not be recorded as a zero-length episode. The callback should use its already accumulated current episode step as the fallback, while valid non-negative episode lengths remain unchanged.
+
+Observed baseline:
+
+- A completed episode had five callback steps already accumulated.
+- Injected Monitor metadata reported `l=-7`.
+- The shared `nonnegative_int(value, default)` helper returned zero instead of its supplied fallback, so the persisted episode length became impossible.
+
+Implemented:
+
+- Normalize the helper fallback itself to a non-negative value.
+- Return that fallback for booleans, conversion failures, and parsed negative integers.
+- Preserve any successfully parsed non-negative integer without treating the fallback as a minimum.
+- Add a callback regression proving a negative metadata length falls back to the five accumulated steps.
+
+Verification:
+
+```text
+Reproduction before fix: recorded episode length 0 instead of 5
+Focused fallback regressions: 4 passed
+Sensitive information scan: no findings
+Full Ruff: passed
+Full Pytest: 157 passed
+```
+
+Checkpoint commit: `f790131e5351e8a16f600fd32bd844952d6358dd`.
+
+
+### Goal: reject boolean values at worker floating-point metric boundaries
+
+Acceptance criterion: boolean values in numeric reward, distance, or logger fields must not be interpreted through Python's `bool`-as-`int` behavior. Invalid booleans should use the caller's numeric fallback, while explicit boolean fields continue through the dedicated strict parser.
+
+Observed baseline:
+
+- A rollout reward vector containing `True` passed `float(True)` conversion.
+- The callback added `1.0` to the current episode reward even though the reward payload was malformed.
+- This could silently corrupt rolling reward and persisted episode metrics without stopping training.
+
+Implemented:
+
+- Reject both native `bool` and NumPy `bool_` values in the shared `finite_float()` boundary.
+- Return the caller-provided numeric fallback before attempting float conversion.
+- Preserve the dedicated `finite_bool()` path for success, done, paused, and stop values.
+- Extend malformed reward-vector regressions with a boolean reward case.
+
+Verification:
+
+```text
+Reproduction before fix: True reward accumulated as 1.0
+Focused numeric/boolean regressions: 7 passed
+Sensitive information scan: no findings
+Full Ruff: passed
+Full Pytest: 158 passed
+```
+
+Checkpoint commit: `27d829081d5bf3c1ddf48ec00b9b400922a7fecf`.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
