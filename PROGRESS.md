@@ -2943,6 +2943,35 @@ Sensitive information scan: no findings
 
 Checkpoint commit: `42ad7d71fcf529c78e4baec886f52b003e96a6b6`.
 
+### Goal: validate reward annealing source stage before configuration loading
+
+Acceptance criterion: optional `anneal_from_stage` values must be genuine integers in the supported range 0–5. Booleans, fractions, and out-of-range values must fail before any training configuration read or run artifact creation.
+
+Observed baseline:
+
+- `anneal_from_stage` was not interpreted until callback construction, after configurations, directories, environments, and the PPO model had already been created.
+- Boolean and fractional values could select inconsistent stage paths, while out-of-range values silently fell back toward base environment configuration.
+- Four deterministic regressions proved malformed annealing stages crossed the initial configuration boundary.
+
+Implemented:
+
+- Require `numbers.Integral` values and explicitly reject `bool` when the optional field is present.
+- Normalize accepted values to built-in `int` and require the supported range 0–5.
+- Place validation beside the primary stage boundary before loading training or environment configuration.
+- Add boolean, fractional, below-range, and above-range regressions that assert no configuration or run side effects occur.
+
+Verification:
+
+```text
+Focused pre-fix anneal stage regressions: 4 failed after crossing the configuration boundary
+Focused anneal stage boundary suite after fix: 4 passed
+Full Ruff: passed
+Full Pytest: 197 passed
+Sensitive information scan: no findings
+```
+
+Checkpoint commit: `<pending>`.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
