@@ -26,7 +26,7 @@ def test_atomic_json_retries_transient_temporary_write_lock(
 
     def flaky_write_text(path: Path, *args: object, **kwargs: object) -> int:
         nonlocal locked_attempts
-        if path.name == "status.json.tmp" and locked_attempts < 2:
+        if path.name.startswith("status.json.tmp.") and locked_attempts < 2:
             locked_attempts += 1
             raise PermissionError("simulated temporary file lock")
         return original_write_text(path, *args, **kwargs)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import threading
 import time
 import traceback
 from collections import deque
@@ -61,9 +62,15 @@ def replace_with_retry(temporary: Path, destination: Path) -> None:
             time.sleep(0.005)
 
 
+def temporary_json_path(path: Path) -> Path:
+    return path.with_name(
+        f"{path.name}.tmp.{os.getpid()}.{threading.get_ident()}"
+    )
+
+
 def atomic_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary = temporary_json_path(path)
     write_text_with_retry(
         temporary,
         json.dumps(payload, ensure_ascii=False, indent=2),
@@ -73,7 +80,7 @@ def atomic_json(path: Path, payload: Any) -> None:
 
 def atomic_json_compact(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary = temporary_json_path(path)
     write_text_with_retry(
         temporary,
         json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
