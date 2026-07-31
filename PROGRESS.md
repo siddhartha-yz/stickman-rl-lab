@@ -2676,6 +2676,35 @@ Sensitive information scan: no findings
 
 Checkpoint commit: `8184ffb54cb676403e2e9d9af26ce95f3ccac4d6`.
 
+### Goal: close both main training environments when PPO setup fails
+
+Acceptance criterion: after both training and evaluation VecEnvs are allocated, any exception during policy configuration, PPO loading, or PPO construction must close both environments before propagating the original failure.
+
+Observed baseline:
+
+- The existing cleanup `finally` began only around `model.learn()` and final saving.
+- A deterministic injected PPO constructor failure occurred after both VecEnvs were created but before that cleanup scope.
+- Both fake environments remained open, leaking resources during model initialization failures.
+
+Implemented:
+
+- Wrap policy kwargs construction plus PPO load/creation in one setup cleanup guard.
+- Close both allocated VecEnvs for any setup exception, including interruption and termination paths.
+- Re-raise the original setup exception unchanged.
+- Add a focused dual-environment regression while retaining the earlier evaluation-env creation regression and real PPO smoke.
+
+Verification:
+
+```text
+Reproduction before fix: train and evaluation VecEnvs both closed=False after PPO construction failure
+Focused cleanup regressions and real PPO smoke: 3 passed
+Full Ruff: passed
+Full Pytest: 169 passed
+Sensitive information scan: no findings
+```
+
+Checkpoint commit: `<pending>`.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
