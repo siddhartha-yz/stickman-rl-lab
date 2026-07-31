@@ -140,6 +140,20 @@ def optional_finite_float(value: Any) -> float | None:
     return parsed if np.isfinite(parsed) else None
 
 
+def action_vector(value: Any) -> list[float]:
+    try:
+        actions = np.asarray(value, dtype=float)
+    except (OverflowError, TypeError, ValueError):
+        return []
+    if actions.size == 0:
+        return []
+    if actions.ndim == 0:
+        actions = actions.reshape(1)
+    elif actions.ndim > 1:
+        actions = actions[0]
+    return [finite_float(item) for item in actions.reshape(-1)]
+
+
 def json_safe(
     value: Any,
     active_containers: set[int] | None = None,
@@ -379,8 +393,9 @@ class LiveTrainingCallback(BaseCallback):
             self.stream_stdout = emit_stdout_event(
                 "metadata", self.cached_metadata, enabled=self.stream_stdout
             )
-        actions = np.asarray(self.locals.get("actions", np.zeros((1, 8), dtype=np.float32)))
-        action = actions[0].astype(float).tolist() if actions.ndim > 1 else actions.astype(float).tolist()
+        action = action_vector(
+            self.locals.get("actions", np.zeros((1, 8), dtype=np.float32))
+        )
         payload = json_safe(
             {
                 **snapshot,
