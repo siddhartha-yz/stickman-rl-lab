@@ -59,6 +59,44 @@ def test_append_progress_uses_valid_candidate_when_other_metrics_are_malformed(
     assert "`checkpoints/branch-a/model.zip`" in text
 
 
+def test_main_falls_back_when_ranked_summary_has_no_checkpoint(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    continuation_commands: list[list[str]] = []
+    monotonic_values = iter([0.0, 0.0, 61.0, 61.0])
+    summary = {
+        "best_evaluation": {
+            "success_rate": 0.75,
+            "mean_reward": 20.0,
+            "mean_final_distance": 0.5,
+        }
+    }
+
+    def fake_run_command(command: list[str], log_handle: object, label: str) -> int:
+        del log_handle
+        if "continuation-" in label:
+            continuation_commands.append(command)
+        return 0
+
+    monkeypatch.setattr(review_module, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        review_module,
+        "parse_args",
+        lambda: argparse.Namespace(min_minutes=1.0, tag="missing-checkpoint"),
+    )
+    monkeypatch.setattr(review_module, "run_command", fake_run_command)
+    monkeypatch.setattr(review_module, "load_summary", lambda _name: summary)
+    monkeypatch.setattr(review_module, "append_progress", lambda *_args: None)
+    monkeypatch.setattr(review_module.time, "monotonic", lambda: next(monotonic_values))
+
+    assert review_module.main() == 0
+    assert len(continuation_commands) == 1
+    command = continuation_commands[0]
+    resume_index = command.index("--resume")
+    assert command[resume_index + 1] == "checkpoints/stage2-random-targets/best/best_model.zip"
+
+
 def test_main_stops_before_training_when_preflight_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

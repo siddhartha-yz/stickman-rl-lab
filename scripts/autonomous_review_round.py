@@ -96,6 +96,19 @@ def result_key(summary: dict[str, Any] | None) -> tuple[float, float, float]:
     return evaluation_key(max(valid, key=evaluation_key))
 
 
+def continuation_checkpoint(summary: dict[str, Any] | None, fallback: str) -> str:
+    if not summary:
+        return fallback
+    value = summary.get("recommended_checkpoint")
+    if not isinstance(value, str) or not value.strip():
+        return fallback
+    normalized = value.strip()
+    candidate = Path(normalized)
+    if not candidate.is_absolute():
+        candidate = PROJECT_ROOT / candidate
+    return normalized if candidate.is_file() else fallback
+
+
 def append_progress(round_id: str, elapsed_minutes: float, records: list[dict[str, Any]]) -> None:
     progress_path = PROJECT_ROOT / "PROGRESS.md"
     lines = [
@@ -246,10 +259,9 @@ def main() -> int:
             continuation_index += 1
             successful = [record for record in records if record.get("summary")]
             source = max(successful, key=lambda record: result_key(record.get("summary"))) if successful else None
-            source_checkpoint = (
-                str(source["summary"].get("recommended_checkpoint"))
-                if source and source.get("summary")
-                else base_checkpoint
+            source_checkpoint = continuation_checkpoint(
+                source.get("summary") if source else None,
+                base_checkpoint,
             )
             name = f"{round_id}-continuation-{continuation_index:02d}"
             command = [
