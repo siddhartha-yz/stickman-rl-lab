@@ -48,6 +48,11 @@ def train_ppo(
     env_config_path: str | Path | None = None,
 ) -> tuple[Path, dict[str, Any]]:
     """Train or resume PPO and return the final checkpoint plus evaluation summary."""
+    if isinstance(stage, bool) or not isinstance(stage, Integral):
+        raise ValueError("stage must be an integer")
+    stage = int(stage)
+    if not 0 <= stage <= 5:
+        raise ValueError("stage must be between 0 and 5")
     train_cfg = load_train_config(train_config_path)
     env_cfg = load_env_config(stage=stage, config_path=env_config_path)
     seed_value = env_cfg.get("seed", 0) if seed is None else seed

@@ -2913,6 +2913,36 @@ Sensitive information scan: no findings
 
 Checkpoint commit: `8085db1d048e216c1d4f00f91a3ed2af5c9120b8`.
 
+### Goal: validate main training stage before configuration loading
+
+Acceptance criterion: programmatic training stages must be genuine integers in the supported range 0–5. Booleans, fractions, and out-of-range values must fail before any configuration read or run artifact creation.
+
+Observed baseline:
+
+- The CLI constrained stage values, but `train_ppo()` accepted arbitrary programmatic inputs.
+- Invalid values reached `load_train_config()` and `load_env_config()` before any type or range validation.
+- Boolean and fractional stages could be interpreted inconsistently through Python formatting and integer conversion, while unsupported stages silently fell back toward base configuration behavior.
+- Four deterministic regressions proved each malformed stage crossed the configuration boundary.
+
+Implemented:
+
+- Require `numbers.Integral` values and explicitly reject `bool`.
+- Normalize accepted values to built-in `int` and require the supported range 0–5.
+- Place validation at the start of `train_ppo()` before training or environment configuration loading.
+- Add boolean, fractional, below-range, and above-range regressions that assert no configuration or run side effects occur.
+
+Verification:
+
+```text
+Focused pre-fix stage regressions: 4 failed after crossing the configuration boundary
+Focused stage boundary suite after fix: 4 passed
+Full Ruff: passed
+Full Pytest: 193 passed
+Sensitive information scan: no findings
+```
+
+Checkpoint commit: `<pending>`.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`

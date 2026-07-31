@@ -8,6 +8,38 @@ import stickman_rl.training as training_module
 from stickman_rl.env import StickmanReachEnv
 
 
+@pytest.mark.parametrize(
+    ("stage", "message"),
+    [
+        (True, "stage must be an integer"),
+        (1.5, "stage must be an integer"),
+        (-1, "stage must be between 0 and 5"),
+        (6, "stage must be between 0 and 5"),
+    ],
+)
+def test_train_ppo_rejects_invalid_stage_before_config_loading(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    stage: object,
+    message: str,
+) -> None:
+    def unexpected_load_train_config(*args: object, **kwargs: object) -> None:
+        del args, kwargs
+        raise AssertionError("config must not load for an invalid stage")
+
+    monkeypatch.setattr(training_module, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(training_module, "load_train_config", unexpected_load_train_config)
+
+    with pytest.raises(ValueError, match=message):
+        training_module.train_ppo(
+            stage=stage,  # type: ignore[arg-type]
+            run_name="invalid-stage",
+        )
+
+    assert not (tmp_path / "checkpoints").exists()
+    assert not (tmp_path / "logs").exists()
+
+
 @pytest.mark.parametrize("seed", [True, 1.5])
 def test_train_ppo_rejects_noninteger_seed_before_run_creation(
     tmp_path,
