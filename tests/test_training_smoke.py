@@ -74,6 +74,66 @@ def test_train_ppo_rejects_nonpositive_timesteps_before_run_creation(
     assert not (tmp_path / "logs").exists()
 
 
+@pytest.mark.parametrize("n_envs", [True, 1.5])
+def test_train_ppo_rejects_noninteger_n_envs_before_run_creation(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    n_envs: object,
+) -> None:
+    def unexpected_make_vec_env(*args: object, **kwargs: object) -> None:
+        del args, kwargs
+        raise AssertionError("environment must not be created for invalid n_envs")
+
+    monkeypatch.setattr(training_module, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        training_module,
+        "load_train_config",
+        lambda _path: {"total_timesteps": 64, "n_envs": n_envs},
+    )
+    monkeypatch.setattr(
+        training_module,
+        "load_env_config",
+        lambda **_kwargs: {"seed": 0},
+    )
+    monkeypatch.setattr(training_module, "make_vec_env", unexpected_make_vec_env)
+
+    with pytest.raises(ValueError, match="n_envs must be an integer"):
+        training_module.train_ppo(run_name="invalid-n-envs")
+
+    assert not (tmp_path / "checkpoints").exists()
+    assert not (tmp_path / "logs").exists()
+
+
+@pytest.mark.parametrize("n_envs", [0, -1])
+def test_train_ppo_rejects_nonpositive_n_envs_before_run_creation(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    n_envs: int,
+) -> None:
+    def unexpected_make_vec_env(*args: object, **kwargs: object) -> None:
+        del args, kwargs
+        raise AssertionError("environment must not be created for invalid n_envs")
+
+    monkeypatch.setattr(training_module, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        training_module,
+        "load_train_config",
+        lambda _path: {"total_timesteps": 64, "n_envs": n_envs},
+    )
+    monkeypatch.setattr(
+        training_module,
+        "load_env_config",
+        lambda **_kwargs: {"seed": 0},
+    )
+    monkeypatch.setattr(training_module, "make_vec_env", unexpected_make_vec_env)
+
+    with pytest.raises(ValueError, match="n_envs must be at least 1"):
+        training_module.train_ppo(run_name="invalid-n-envs")
+
+    assert not (tmp_path / "checkpoints").exists()
+    assert not (tmp_path / "logs").exists()
+
+
 def test_train_ppo_closes_training_env_when_eval_env_creation_fails(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,

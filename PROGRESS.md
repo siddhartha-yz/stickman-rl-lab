@@ -2853,6 +2853,36 @@ Sensitive information scan: no findings
 
 Checkpoint commit: `e4aade477506d95f656d581240febf8eefd09c2b`.
 
+### Goal: validate main training environment count before run creation
+
+Acceptance criterion: configured `n_envs` must be a genuine positive integer. Booleans, fractions, zero, and negative values must fail before checkpoint/log directories or environments are created.
+
+Observed baseline:
+
+- `train_ppo()` wrote run configuration and metadata before converting `n_envs` through direct `int(...)`.
+- `True` and `1.5` were silently coerced to one environment.
+- Zero and negative values also crossed the run-directory boundary and reached `make_vec_env()`.
+- Four deterministic regressions proved all malformed values caused side effects before rejection.
+
+Implemented:
+
+- Require `numbers.Integral` values and explicitly reject `bool`.
+- Normalize accepted values to built-in `int` and require at least one environment.
+- Move validation before run ID derivation, directory creation, metadata writes, and environment allocation.
+- Add boolean, fractional, zero, and negative regressions that assert no directories or environments are created.
+
+Verification:
+
+```text
+Focused pre-fix n_envs regressions: 4 failed after crossing the environment boundary
+Focused n_envs boundary suite after fix: 4 passed
+Full Ruff: passed
+Full Pytest: 186 passed
+Sensitive information scan: no findings
+```
+
+Checkpoint commit: `<pending>`.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
