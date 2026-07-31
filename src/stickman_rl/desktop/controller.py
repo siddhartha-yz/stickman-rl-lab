@@ -11,6 +11,7 @@ from collections import deque
 from contextlib import suppress
 from dataclasses import asdict, dataclass
 from datetime import datetime
+from numbers import Integral
 from pathlib import Path
 from typing import Any, Literal
 
@@ -185,16 +186,26 @@ class TrainingRequest:
     env_config: str | None = None
 
     def validated(self) -> TrainingRequest:
-        if not 0 <= self.stage <= 5:
+        for name, value in (
+            ("stage", self.stage),
+            ("timesteps", self.timesteps),
+            ("seed", self.seed),
+        ):
+            if isinstance(value, bool) or not isinstance(value, Integral):
+                raise ValueError(f"{name} must be an integer")
+        stage = int(self.stage)
+        timesteps = int(self.timesteps)
+        seed = int(self.seed)
+        if not 0 <= stage <= 5:
             raise ValueError("stage must be between 0 and 5")
-        if not 64 <= self.timesteps <= 10_000_000:
+        if not 64 <= timesteps <= 10_000_000:
             raise ValueError("timesteps must be between 64 and 10,000,000")
-        if not 0 <= self.seed <= 2_147_483_647:
+        if not 0 <= seed <= 2_147_483_647:
             raise ValueError("seed is outside the supported range")
         return TrainingRequest(
-            stage=self.stage,
-            timesteps=self.timesteps,
-            seed=self.seed,
+            stage=stage,
+            timesteps=timesteps,
+            seed=seed,
             train_config=_validated_config(self.train_config, training=True) or "configs/train_live.yaml",
             env_config=_validated_config(self.env_config, training=False),
         )
