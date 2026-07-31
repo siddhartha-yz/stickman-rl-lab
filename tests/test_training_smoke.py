@@ -104,6 +104,63 @@ def test_train_ppo_closes_both_envs_when_ppo_construction_fails(
     assert eval_env.closed
 
 
+def test_train_ppo_closes_both_envs_when_callback_construction_fails(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeVecEnv:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    train_env = FakeVecEnv()
+    eval_env = FakeVecEnv()
+    environments = iter([train_env, eval_env])
+
+    def fail_callback(*args: object, **kwargs: object) -> None:
+        del args, kwargs
+        raise RuntimeError("callback construction failure")
+
+    monkeypatch.setattr(training_module, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        training_module,
+        "load_train_config",
+        lambda _path: {
+            "total_timesteps": 64,
+            "learning_rate": 0.0003,
+            "n_steps": 32,
+            "batch_size": 16,
+            "n_epochs": 1,
+            "gamma": 0.99,
+            "gae_lambda": 0.95,
+            "clip_range": 0.2,
+            "ent_coef": 0.0,
+            "vf_coef": 0.5,
+            "max_grad_norm": 0.5,
+        },
+    )
+    monkeypatch.setattr(
+        training_module,
+        "load_env_config",
+        lambda **_kwargs: {"seed": 0},
+    )
+    monkeypatch.setattr(
+        training_module,
+        "make_vec_env",
+        lambda *_args, **_kwargs: next(environments),
+    )
+    monkeypatch.setattr(training_module, "PPO", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(training_module, "EnvironmentMetricsCallback", fail_callback)
+
+    with pytest.raises(RuntimeError, match="callback construction failure"):
+        training_module.train_ppo(run_name="callback-construction-failure")
+
+    assert train_env.closed
+    assert eval_env.closed
+
+
 def test_ppo_can_train_save_and_reload(tmp_path) -> None:
     env = StickmanReachEnv(stage=0)
     model = PPO(
