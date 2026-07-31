@@ -157,6 +157,82 @@ def test_action_vector_normalizes_and_rejects_malformed_values() -> None:
     assert worker_module.action_vector([[1, 2], [3]]) == []
 
 
+def test_validate_live_worker_mode_config_normalizes_supported_values() -> None:
+    assert worker_module.validate_live_worker_mode_config({}) == {
+        "algorithm": "PPO",
+        "n_envs": 1,
+    }
+    assert worker_module.validate_live_worker_mode_config(
+        {"algorithm": " ppo ", "n_envs": worker_module.np.int64(1)}
+    ) == {"algorithm": "PPO", "n_envs": 1}
+
+
+@pytest.mark.parametrize(
+    ("config", "message"),
+    [
+        ({"algorithm": "SAC"}, "algorithm must be PPO for live training"),
+        ({"algorithm": True}, "algorithm must be PPO for live training"),
+        ({"n_envs": True}, "n_envs must be an integer"),
+        ({"n_envs": 1.5}, "n_envs must be an integer"),
+        ({"n_envs": 2}, "n_envs must be 1 for live training"),
+    ],
+)
+def test_validate_live_worker_mode_config_rejects_unsupported_values(
+    config: dict[str, object],
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        worker_module.validate_live_worker_mode_config(config)
+
+
+def test_run_rejects_unsupported_mode_before_environment_creation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        worker_module,
+        "load_train_config",
+        lambda _path: {
+            "algorithm": "SAC",
+            "n_envs": 8,
+            "n_steps": 32,
+            "batch_size": 16,
+            "n_epochs": 1,
+            "policy_layers": [32, 32],
+            "learning_rate": 0.0003,
+            "gamma": 0.99,
+            "gae_lambda": 0.95,
+            "clip_range": 0.2,
+            "ent_coef": 0.0,
+            "vf_coef": 0.5,
+            "max_grad_norm": 0.5,
+        },
+    )
+    environment_created = False
+
+    def fail_if_environment_created(*_args: object, **_kwargs: object) -> None:
+        nonlocal environment_created
+        environment_created = True
+        raise AssertionError("environment should not be created")
+
+    monkeypatch.setattr(worker_module, "make_vec_env", fail_if_environment_created)
+    args = argparse.Namespace(
+        run_id="unsupported-mode",
+        run_dir=str(tmp_path / "run"),
+        stage=1,
+        timesteps=64,
+        seed=1,
+        train_config="configs/train_smoke.yaml",
+        env_config=None,
+        stream_stdout=False,
+    )
+
+    with pytest.raises(ValueError, match="algorithm must be PPO for live training"):
+        worker_module.run(args)
+
+    assert not environment_created
+
+
 def test_validate_ppo_integer_config_normalizes_integral_values() -> None:
     validated = worker_module.validate_ppo_integer_config(
         {

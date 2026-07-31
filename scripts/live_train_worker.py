@@ -155,6 +155,21 @@ def action_vector(value: Any) -> list[float]:
     return [finite_float(item) for item in actions.reshape(-1)]
 
 
+def validate_live_worker_mode_config(config: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(config)
+    algorithm = config.get("algorithm", "PPO")
+    if not isinstance(algorithm, str) or algorithm.strip().upper() != "PPO":
+        raise ValueError("algorithm must be PPO for live training")
+    n_envs = config.get("n_envs", 1)
+    if isinstance(n_envs, bool) or not isinstance(n_envs, Integral):
+        raise ValueError("n_envs must be an integer")
+    if int(n_envs) != 1:
+        raise ValueError("n_envs must be 1 for live training")
+    normalized["algorithm"] = "PPO"
+    normalized["n_envs"] = 1
+    return normalized
+
+
 def _train_config_int(
     config: dict[str, Any],
     key: str,
@@ -773,7 +788,9 @@ def run(args: argparse.Namespace) -> None:
     atomic_json(status_path, {"state": "starting", **request, "pid": os.getpid(), "num_timesteps": 0})
 
     train_cfg = validate_ppo_float_config(
-        validate_ppo_integer_config(load_train_config(args.train_config))
+        validate_ppo_integer_config(
+            validate_live_worker_mode_config(load_train_config(args.train_config))
+        )
     )
     actual_seed = int(args.seed)
     env = make_vec_env(monitored_env(args.stage, actual_seed, args.env_config), n_envs=1, seed=actual_seed)

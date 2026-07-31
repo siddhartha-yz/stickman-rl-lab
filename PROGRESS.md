@@ -2276,6 +2276,37 @@ Full Pytest: 145 passed
 
 Checkpoint commit: `73317979d18ab8070bdb6ad3f776e9c91d0798cf`.
 
+
+### Goal: reject unsupported live worker mode configuration
+
+Acceptance criterion: the desktop live worker is intentionally PPO with one environment. Configurations declaring another algorithm or environment count must fail clearly before environment allocation instead of being silently ignored.
+
+Observed baseline:
+
+- A config declaring `algorithm: SAC` still constructed PPO.
+- A config declaring `n_envs: 8` still called `make_vec_env(..., n_envs=1)`.
+- Persisted configuration could therefore disagree with the training process that actually ran.
+
+Implemented:
+
+- Accept algorithm values only when they normalize case-insensitively to `PPO`.
+- Require `n_envs` to be a genuine integer exactly equal to `1`.
+- Reject booleans, fractional counts, unsupported algorithms, and multi-environment values.
+- Normalize supported values to `PPO` and `1` before all other config validation and before `make_vec_env()`.
+
+Verification:
+
+```text
+Worker tests: 70 passed
+SAC / 8-env config after fix: ValueError algorithm must be PPO for live training
+Environment created for unsupported mode: False
+Supported normalization: {'algorithm': 'PPO', 'n_envs': 1}
+Full Ruff: passed
+Full Pytest: 152 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
