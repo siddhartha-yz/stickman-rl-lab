@@ -1941,6 +1941,37 @@ Full Pytest: 95 passed
 
 Checkpoint commit: `0ea58f9f09550e61927e64a6a8692594cbfc50af`.
 
+
+### Goal: parse episode success flags without Python truthiness
+
+Acceptance criterion: string or malformed `is_success` values must not be classified through Python truthiness. Recognized true/false representations must update success metrics correctly, and unknown values must default to failure.
+
+Observed baseline:
+
+- An episode with `is_success="false"` was recorded as `success=True`.
+- Rolling success rate and any downstream checkpoint selection using it could therefore be corrupted by a wrapper or migrated payload.
+
+Implemented:
+
+- Reuse the strict finite boolean parser for `is_success`.
+- Recognize standard true/false strings and finite numeric booleans.
+- Default unknown strings and object values to `False`.
+- Preserve normal boolean environment output unchanged.
+
+Verification:
+
+```text
+Worker tests: 29 passed
+String false baseline: success=True
+String false after fix: success=False
+String true after fix: success=True
+Unknown/object values after fix: success=False
+Full Ruff: passed
+Full Pytest: 99 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
