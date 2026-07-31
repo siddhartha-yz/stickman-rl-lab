@@ -235,6 +235,135 @@ def test_validate_ppo_integer_config_rejects_missing_and_invalid_layers() -> Non
             worker_module.validate_ppo_integer_config(config)
 
 
+def test_validate_ppo_float_config_normalizes_real_values() -> None:
+    validated = worker_module.validate_ppo_float_config(
+        {
+            "learning_rate": worker_module.np.float64(0.0003),
+            "gamma": 1,
+            "gae_lambda": worker_module.np.float32(0.95),
+            "clip_range": 0.2,
+            "ent_coef": 0,
+            "vf_coef": 1,
+            "max_grad_norm": 0.5,
+            "log_std_init": -0.7,
+            "target_kl": None,
+        }
+    )
+
+    for key in (
+        "learning_rate",
+        "gamma",
+        "gae_lambda",
+        "clip_range",
+        "ent_coef",
+        "vf_coef",
+        "max_grad_norm",
+        "log_std_init",
+    ):
+        assert type(validated[key]) is float
+    assert validated["target_kl"] is None
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("learning_rate", True, "learning_rate must be a number"),
+        ("learning_rate", float("nan"), "learning_rate must be finite"),
+        ("learning_rate", 0.0, "learning_rate is outside the supported range"),
+        ("gamma", -0.1, "gamma is outside the supported range"),
+        ("gamma", 1.1, "gamma is outside the supported range"),
+        ("gae_lambda", float("inf"), "gae_lambda must be finite"),
+        ("clip_range", 0.0, "clip_range is outside the supported range"),
+        ("ent_coef", -0.1, "ent_coef is outside the supported range"),
+        ("vf_coef", -0.1, "vf_coef is outside the supported range"),
+        ("max_grad_norm", 0.0, "max_grad_norm is outside the supported range"),
+        ("log_std_init", float("nan"), "log_std_init must be finite"),
+        ("target_kl", True, "target_kl must be a number"),
+        ("target_kl", 0.0, "target_kl is outside the supported range"),
+    ],
+)
+def test_validate_ppo_float_config_rejects_invalid_values(
+    field: str,
+    value: object,
+    message: str,
+) -> None:
+    config: dict[str, object] = {
+        "learning_rate": 0.0003,
+        "gamma": 0.99,
+        "gae_lambda": 0.95,
+        "clip_range": 0.2,
+        "ent_coef": 0.0,
+        "vf_coef": 0.5,
+        "max_grad_norm": 0.5,
+        "log_std_init": -0.7,
+        "target_kl": None,
+    }
+    config[field] = value
+
+    with pytest.raises(ValueError, match=message):
+        worker_module.validate_ppo_float_config(config)
+
+
+def test_validate_ppo_float_config_rejects_missing_required_field() -> None:
+    config = {
+        "gamma": 0.99,
+        "gae_lambda": 0.95,
+        "clip_range": 0.2,
+        "ent_coef": 0.0,
+        "vf_coef": 0.5,
+        "max_grad_norm": 0.5,
+    }
+
+    with pytest.raises(ValueError, match="Training config is missing learning_rate"):
+        worker_module.validate_ppo_float_config(config)
+
+
+def test_run_rejects_invalid_float_config_before_environment_creation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        worker_module,
+        "load_train_config",
+        lambda _path: {
+            "n_steps": 32,
+            "batch_size": 16,
+            "n_epochs": 1,
+            "policy_layers": [32, 32],
+            "learning_rate": float("nan"),
+            "gamma": 0.99,
+            "gae_lambda": 0.95,
+            "clip_range": 0.2,
+            "ent_coef": 0.0,
+            "vf_coef": 0.5,
+            "max_grad_norm": 0.5,
+        },
+    )
+    environment_created = False
+
+    def fail_if_environment_created(*_args: object, **_kwargs: object) -> None:
+        nonlocal environment_created
+        environment_created = True
+        raise AssertionError("environment should not be created")
+
+    monkeypatch.setattr(worker_module, "make_vec_env", fail_if_environment_created)
+    args = argparse.Namespace(
+        run_id="invalid-float-config",
+        run_dir=str(tmp_path / "run"),
+        stage=1,
+        timesteps=64,
+        seed=1,
+        train_config="configs/train_smoke.yaml",
+        env_config=None,
+        stream_stdout=False,
+    )
+
+    with pytest.raises(ValueError, match="learning_rate must be finite"):
+        worker_module.run(args)
+
+    assert not environment_created
+
+
 def test_run_rejects_invalid_integer_config_before_environment_creation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
