@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from numbers import Integral
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +12,15 @@ from stable_baselines3 import PPO
 
 from stickman_rl.config import load_env_config
 from stickman_rl.env import StickmanReachEnv
+
+
+def _positive_episode_count(episodes: int) -> int:
+    if isinstance(episodes, bool) or not isinstance(episodes, Integral):
+        raise ValueError("episodes must be an integer")
+    normalized = int(episodes)
+    if normalized < 1:
+        raise ValueError("episodes must be at least 1")
+    return normalized
 
 
 @dataclass(slots=True)
@@ -41,6 +51,7 @@ def evaluate_policy_path(
     env_config_path: str | Path | None = None,
 ) -> EvaluationResult:
     """Load a PPO checkpoint and evaluate episode-level task metrics."""
+    episodes = _positive_episode_count(episodes)
     model = PPO.load(str(model_path))
     env_config = load_env_config(stage=stage, config_path=env_config_path)
     env = StickmanReachEnv(config=env_config, render_mode="human" if render else None)
@@ -107,6 +118,7 @@ def evaluate_random_policy(
     env_config_path: str | Path | None = None,
 ) -> EvaluationResult:
     """Evaluate uniformly random joint commands as a reproducible baseline."""
+    episodes = _positive_episode_count(episodes)
     env = StickmanReachEnv(config=load_env_config(stage=stage, config_path=env_config_path))
     rewards: list[float] = []
     lengths: list[int] = []

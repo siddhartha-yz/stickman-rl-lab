@@ -2734,6 +2734,66 @@ Sensitive information scan: no findings
 
 Checkpoint commit: `c15467ba82d3714fd435f9dd774c6d96a8f130c3`.
 
+### Goal: reject nonpositive evaluation episode counts before resource allocation
+
+Acceptance criterion: trained-policy and random-policy evaluation must reject zero or negative episode counts before loading a model or creating an environment, instead of returning empty-sample metrics.
+
+Observed baseline:
+
+- Both evaluation CLIs accepted `--episodes 0`.
+- A real zero-episode random evaluation returned ten `NaN` metrics and emitted NumPy empty-slice and invalid-division warnings.
+- Deterministic regressions showed policy evaluation loaded the model and random evaluation created the environment before noticing the invalid count.
+- These non-finite results could be serialized into reports or training summaries as non-standard JSON values.
+
+Implemented:
+
+- Add one shared positive episode-count boundary.
+- Apply it at the start of both evaluation APIs before model loading, environment configuration, or environment allocation.
+- Preserve all valid positive episode behavior unchanged.
+- Add zero and negative regressions for both trained-policy and random-policy evaluation entry points.
+
+Verification:
+
+```text
+Real zero-episode reproduction: all aggregate metrics were NaN
+Focused pre-fix regressions: 4 failed before model/environment validation
+Focused evaluation regressions after fix: 4 passed
+Full Ruff: passed
+Full Pytest: 174 passed
+Sensitive information scan: no findings
+```
+
+Checkpoint commit: `0e347c350b743a22af26225fdd7aadf33b1b36b3`.
+
+### Goal: require genuine integer evaluation episode counts
+
+Acceptance criterion: trained-policy and random-policy evaluation must reject boolean and fractional episode counts before loading a model or creating an environment, while valid integral values normalize to built-in integers.
+
+Observed baseline:
+
+- Python booleans passed the positive-count comparison and `True` silently became one evaluation episode.
+- A fractional count such as `1.5` passed the initial boundary, caused model/environment allocation, and failed only later when used by `range()`.
+- Four deterministic regressions proved both evaluation APIs performed resource work before rejecting these malformed programmatic inputs.
+
+Implemented:
+
+- Require `numbers.Integral` values and explicitly reject `bool`.
+- Normalize accepted integral values to built-in `int` before the positive-count check.
+- Preserve the existing zero and negative validation and all normal CLI integer behavior.
+- Add boolean and fractional regressions for both policy and random evaluation paths.
+
+Verification:
+
+```text
+Focused pre-fix noninteger regressions: 4 failed before model/environment validation
+Focused evaluation boundary suite after fix: 8 passed
+Full Ruff: passed
+Full Pytest: 178 passed
+Sensitive information scan: no findings
+```
+
+Checkpoint commit: `d0896b5decd8d75a32dfd25987d2aa91c43d1125`.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
