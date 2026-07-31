@@ -8,6 +8,67 @@ import stickman_rl.training as training_module
 from stickman_rl.env import StickmanReachEnv
 
 
+@pytest.mark.parametrize("seed", [True, 1.5])
+def test_train_ppo_rejects_noninteger_seed_before_run_creation(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    seed: object,
+) -> None:
+    def unexpected_make_vec_env(*args: object, **kwargs: object) -> None:
+        del args, kwargs
+        raise AssertionError("environment must not be created for an invalid seed")
+
+    monkeypatch.setattr(training_module, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        training_module,
+        "load_train_config",
+        lambda _path: {"total_timesteps": 64},
+    )
+    monkeypatch.setattr(
+        training_module,
+        "load_env_config",
+        lambda **_kwargs: {"seed": 0},
+    )
+    monkeypatch.setattr(training_module, "make_vec_env", unexpected_make_vec_env)
+
+    with pytest.raises(ValueError, match="seed must be an integer"):
+        training_module.train_ppo(
+            seed=seed,  # type: ignore[arg-type]
+            run_name="invalid-seed",
+        )
+
+    assert not (tmp_path / "checkpoints").exists()
+    assert not (tmp_path / "logs").exists()
+
+
+def test_train_ppo_rejects_negative_seed_before_run_creation(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def unexpected_make_vec_env(*args: object, **kwargs: object) -> None:
+        del args, kwargs
+        raise AssertionError("environment must not be created for an invalid seed")
+
+    monkeypatch.setattr(training_module, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        training_module,
+        "load_train_config",
+        lambda _path: {"total_timesteps": 64},
+    )
+    monkeypatch.setattr(
+        training_module,
+        "load_env_config",
+        lambda **_kwargs: {"seed": 0},
+    )
+    monkeypatch.setattr(training_module, "make_vec_env", unexpected_make_vec_env)
+
+    with pytest.raises(ValueError, match="seed must be non-negative"):
+        training_module.train_ppo(seed=-1, run_name="invalid-seed")
+
+    assert not (tmp_path / "checkpoints").exists()
+    assert not (tmp_path / "logs").exists()
+
+
 @pytest.mark.parametrize("timesteps", [True, 1.5])
 def test_train_ppo_rejects_noninteger_timesteps_before_run_creation(
     tmp_path,

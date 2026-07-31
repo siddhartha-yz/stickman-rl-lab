@@ -2883,6 +2883,36 @@ Sensitive information scan: no findings
 
 Checkpoint commit: `44629f06faa3a85ea36b36da5d8594f330bca477`.
 
+### Goal: validate main training seed before run creation
+
+Acceptance criterion: explicit or configured training seeds must be genuine non-negative integers. Booleans, fractions, and negative values must fail before checkpoint/log directories or environments are created.
+
+Observed baseline:
+
+- `train_ppo()` converted the selected seed through direct `int(...)`.
+- `True` and `1.5` were silently coerced to one.
+- A negative seed crossed the run-directory boundary and reached environment allocation before downstream rejection.
+- Three deterministic regressions proved every malformed value caused side effects before validation.
+
+Implemented:
+
+- Require `numbers.Integral` values and explicitly reject `bool`.
+- Normalize accepted seed values to built-in `int` and require a non-negative result.
+- Apply the same boundary to explicit seeds and seeds loaded from environment configuration.
+- Move validation before run ID derivation, directory creation, metadata writes, and environment allocation.
+
+Verification:
+
+```text
+Focused pre-fix seed regressions: 3 failed after crossing the environment boundary
+Focused seed boundary suite after fix: 3 passed
+Full Ruff: passed
+Full Pytest: 189 passed
+Sensitive information scan: no findings
+```
+
+Checkpoint commit: `<pending>`.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`

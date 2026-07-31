@@ -50,7 +50,12 @@ def train_ppo(
     """Train or resume PPO and return the final checkpoint plus evaluation summary."""
     train_cfg = load_train_config(train_config_path)
     env_cfg = load_env_config(stage=stage, config_path=env_config_path)
-    actual_seed = int(env_cfg.get("seed", 0) if seed is None else seed)
+    seed_value = env_cfg.get("seed", 0) if seed is None else seed
+    if isinstance(seed_value, bool) or not isinstance(seed_value, Integral):
+        raise ValueError("seed must be an integer")
+    actual_seed = int(seed_value)
+    if actual_seed < 0:
+        raise ValueError("seed must be non-negative")
     timestep_value = train_cfg["total_timesteps"] if total_timesteps is None else total_timesteps
     if isinstance(timestep_value, bool) or not isinstance(timestep_value, Integral):
         raise ValueError("total_timesteps must be an integer")
