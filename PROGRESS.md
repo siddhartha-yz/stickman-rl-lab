@@ -2429,6 +2429,39 @@ Full Pytest: 158 passed
 
 Checkpoint commit: `27d829081d5bf3c1ddf48ec00b9b400922a7fecf`.
 
+### Goal: isolate concurrent controller and worker atomic JSON temporary files
+
+Acceptance criterion: controller and worker writes targeting the same run JSON file must not share one fixed temporary path. Concurrent atomic writes should both complete without one writer deleting the other writer's pending temporary file, while the destination remains valid complete JSON.
+
+Observed baseline:
+
+- Both `DesktopTrainingController._atomic_json()` and the live worker atomic writers used the fixed path `status.json.tmp` for `status.json`.
+- A deterministic two-writer regression synchronized both temporary writes, let one writer replace the shared file, and then made the second writer fail with `FileNotFoundError` because its temporary file had already been moved.
+- This race was relevant to controller process-exit finalization overlapping a worker terminal status write.
+
+Implemented:
+
+- Give controller atomic writes a temporary path scoped by process ID and thread ID.
+- Give worker formatted and compact atomic JSON writes the same per-writer isolation.
+- Preserve the existing bounded write/replace retry behavior and final JSON filenames.
+- Update temporary-file lock regressions for the isolated name format.
+- Add a deterministic cross-module concurrency regression covering controller and worker writes to one destination.
+
+Verification:
+
+```text
+Clean baseline: Ruff passed, Pytest 158 passed
+Reproduction before fix: FileNotFoundError replacing shared status.json.tmp
+Focused atomic-write regressions: 3 passed
+Collision regression repeated independently: 5/5 passed
+Full Ruff: passed
+Full Pytest: 159 passed
+Sensitive information scan: no findings
+```
+
+Checkpoint commit: `PENDING`.
+
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
