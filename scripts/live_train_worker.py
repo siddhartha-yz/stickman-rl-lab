@@ -7,7 +7,7 @@ import time
 import traceback
 from collections import deque
 from datetime import datetime
-from numbers import Integral
+from numbers import Integral, Real
 from pathlib import Path
 from typing import Any
 
@@ -199,6 +199,89 @@ def validate_ppo_integer_config(config: dict[str, Any]) -> dict[str, Any]:
             raise ValueError(f"policy_layers[{index}] must be at least 1")
         layers.append(layer)
     normalized["policy_layers"] = layers
+    return normalized
+
+
+_CONFIG_MISSING = object()
+
+
+def _train_config_float(
+    config: dict[str, Any],
+    key: str,
+    *,
+    default: Any = _CONFIG_MISSING,
+    minimum: float | None = None,
+    maximum: float | None = None,
+    minimum_inclusive: bool = True,
+) -> float | None:
+    if key not in config:
+        if default is _CONFIG_MISSING:
+            raise ValueError(f"Training config is missing {key}")
+        value = default
+    else:
+        value = config[key]
+    if value is None and default is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ValueError(f"{key} must be a number")
+    normalized = float(value)
+    if not np.isfinite(normalized):
+        raise ValueError(f"{key} must be finite")
+    if minimum is not None:
+        below_minimum = normalized < minimum if minimum_inclusive else normalized <= minimum
+        if below_minimum:
+            raise ValueError(f"{key} is outside the supported range")
+    if maximum is not None and normalized > maximum:
+        raise ValueError(f"{key} is outside the supported range")
+    return normalized
+
+
+def validate_ppo_float_config(config: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(config)
+    normalized["learning_rate"] = _train_config_float(
+        config,
+        "learning_rate",
+        minimum=0.0,
+        minimum_inclusive=False,
+    )
+    normalized["gamma"] = _train_config_float(
+        config,
+        "gamma",
+        minimum=0.0,
+        maximum=1.0,
+    )
+    normalized["gae_lambda"] = _train_config_float(
+        config,
+        "gae_lambda",
+        minimum=0.0,
+        maximum=1.0,
+    )
+    normalized["clip_range"] = _train_config_float(
+        config,
+        "clip_range",
+        minimum=0.0,
+        minimum_inclusive=False,
+    )
+    normalized["ent_coef"] = _train_config_float(config, "ent_coef", minimum=0.0)
+    normalized["vf_coef"] = _train_config_float(config, "vf_coef", minimum=0.0)
+    normalized["max_grad_norm"] = _train_config_float(
+        config,
+        "max_grad_norm",
+        minimum=0.0,
+        minimum_inclusive=False,
+    )
+    normalized["log_std_init"] = _train_config_float(
+        config,
+        "log_std_init",
+        default=0.0,
+    )
+    normalized["target_kl"] = _train_config_float(
+        config,
+        "target_kl",
+        default=None,
+        minimum=0.0,
+        minimum_inclusive=False,
+    )
     return normalized
 
 
@@ -689,28 +772,30 @@ def run(args: argparse.Namespace) -> None:
         atomic_json(run_dir / "control.json", {"paused": False, "stop": False, "save_request": None})
     atomic_json(status_path, {"state": "starting", **request, "pid": os.getpid(), "num_timesteps": 0})
 
-    train_cfg = validate_ppo_integer_config(load_train_config(args.train_config))
+    train_cfg = validate_ppo_float_config(
+        validate_ppo_integer_config(load_train_config(args.train_config))
+    )
     actual_seed = int(args.seed)
     env = make_vec_env(monitored_env(args.stage, actual_seed, args.env_config), n_envs=1, seed=actual_seed)
     try:
         policy_kwargs = {
             "net_arch": train_cfg["policy_layers"],
-            "log_std_init": float(train_cfg.get("log_std_init", 0.0)),
+            "log_std_init": train_cfg["log_std_init"],
         }
         model = PPO(
             "MlpPolicy",
             env,
-            learning_rate=float(train_cfg["learning_rate"]),
+            learning_rate=train_cfg["learning_rate"],
             n_steps=train_cfg["n_steps"],
             batch_size=train_cfg["batch_size"],
             n_epochs=train_cfg["n_epochs"],
-            gamma=float(train_cfg["gamma"]),
-            gae_lambda=float(train_cfg["gae_lambda"]),
-            clip_range=float(train_cfg["clip_range"]),
-            ent_coef=float(train_cfg["ent_coef"]),
-            vf_coef=float(train_cfg["vf_coef"]),
-            max_grad_norm=float(train_cfg["max_grad_norm"]),
-            target_kl=float(train_cfg["target_kl"]) if "target_kl" in train_cfg else None,
+            gamma=train_cfg["gamma"],
+            gae_lambda=train_cfg["gae_lambda"],
+            clip_range=train_cfg["clip_range"],
+            ent_coef=train_cfg["ent_coef"],
+            vf_coef=train_cfg["vf_coef"],
+            max_grad_norm=train_cfg["max_grad_norm"],
+            target_kl=train_cfg["target_kl"],
             policy_kwargs=policy_kwargs,
             verbose=0,
             tensorboard_log=str(run_dir / "tensorboard"),

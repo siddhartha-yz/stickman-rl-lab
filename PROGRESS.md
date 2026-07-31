@@ -2245,6 +2245,37 @@ Full Pytest: 129 passed
 
 Checkpoint commit: `b7f37b00735becd5502a9e12cb233d4b544e794e`.
 
+
+### Goal: validate PPO floating-point configuration before environment creation
+
+Acceptance criterion: PPO float settings must reject booleans, missing values, NaN/Infinity, and unsupported ranges with clear errors before allocating the environment or constructing the optimizer.
+
+Observed baseline:
+
+- YAML `learning_rate: .nan` reached the real PPO constructor.
+- PPO failed with `ValueError: Invalid learning rate: nan` only after the environment had been created.
+- Boolean and out-of-range values were also silently accepted by direct `float(...)` conversion.
+
+Implemented:
+
+- Validate learning rate, gamma, GAE lambda, clip range, entropy/value coefficients, max gradient norm, initial log standard deviation, and optional target KL.
+- Reject booleans and require finite real values.
+- Enforce positive or probability-range constraints appropriate to each field.
+- Normalize valid real values to built-in `float` and validate before `make_vec_env()`.
+
+Verification:
+
+```text
+Worker tests: 63 passed
+learning_rate: .nan after fix: ValueError learning_rate must be finite
+Environment created for invalid float config: False
+Boolean/non-finite/missing/out-of-range cases: passed
+Full Ruff: passed
+Full Pytest: 145 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
