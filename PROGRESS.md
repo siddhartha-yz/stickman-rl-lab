@@ -2121,6 +2121,36 @@ Full Pytest: 113 passed
 
 Checkpoint commit: `795931c350587961700de2a3a1809ce901b6ef3b`.
 
+
+### Goal: parse desktop success flags without Python truthiness
+
+Acceptance criterion: persisted success flags must be interpreted explicitly. String values such as `"false"` must not count as successful episodes or render a `GOAL REACHED` overlay, while recognized true values continue to work and unknown values are ignored.
+
+Observed baseline:
+
+- Episode metrics `["false", "true", 0, 1]` produced the incorrect rolling series `[1.0, 1.0, 0.667, 0.75]`.
+- A frame with `is_success="false"` still rendered `GOAL REACHED`.
+- Both paths relied on Python truthiness rather than persisted boolean semantics.
+
+Implemented:
+
+- Add a shared desktop `boolean_value()` parser for booleans, recognized strings, and finite numeric values.
+- Skip unknown success values instead of treating them as true.
+- Reuse the same boundary in the rolling success chart and physics success overlay.
+
+Verification:
+
+```text
+Desktop app tests: 24 passed
+Rolling success after fix: [0.0, 0.5, 0.3333333333333333, 0.5]
+String false overlay after fix: absent
+String true overlay after fix: present
+Full Ruff: passed
+Full Pytest: 114 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`

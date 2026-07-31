@@ -102,6 +102,22 @@ def format_percent(value: Any) -> str:
     return f"{parsed * 100:.1f}%" if parsed is not None else "—"
 
 
+def boolean_value(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "off"}:
+            return False
+        return None
+    if isinstance(value, int | float):
+        parsed = finite_float(value)
+        return bool(parsed) if parsed is not None else None
+    return None
+
+
 def _json_object(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
@@ -469,7 +485,7 @@ class PhysicsCanvas(tk.Canvas):
                     points.extend(point(rotate_point(vertex, angle, position)))
                 self.create_polygon(*points, fill=fill, outline=outline, width=2)
 
-        if frame.get("info", {}).get("is_success"):
+        if boolean_value(frame.get("info", {}).get("is_success")) is True:
             self.create_text(offset_x + 20, offset_y + 20, text="GOAL REACHED", fill="#a7f3d0", anchor="nw", font=("Segoe UI", 16, "bold"))
 
 
@@ -801,7 +817,10 @@ class DesktopLabApp:
         rolling: list[float] = []
         successes: list[float] = []
         for item in episodes:
-            successes.append(float(bool(item.get("success"))))
+            success = boolean_value(item.get("success"))
+            if success is None:
+                continue
+            successes.append(float(success))
             window = successes[-20:]
             rolling.append(sum(window) / len(window))
         self.success_chart.set_values(rolling)
