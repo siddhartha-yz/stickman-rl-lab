@@ -235,6 +235,113 @@ def test_callback_disables_stdout_after_emit_failure(
     assert not callback.stream_stdout
 
 
+def test_live_snapshot_capture_failures_back_off_without_stopping_training(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeModel:
+        def __init__(self, env: object) -> None:
+            self.env = env
+
+        def get_env(self) -> object:
+            return self.env
+
+    class FixedEnv:
+        def __init__(self, result: object = None, error: Exception | None = None) -> None:
+            self.result = result
+            self.error = error
+
+        def env_method(self, _name: str, include_metadata: bool = False) -> object:
+            assert include_metadata
+            if self.error is not None:
+                raise self.error
+            return self.result
+
+    emitted: list[str] = []
+
+    def capture_event(event_type: str, _payload: object, *, enabled: bool) -> bool:
+        if enabled:
+            emitted.append(event_type)
+        return enabled
+
+    monkeypatch.setattr(worker_module, "emit_stdout_event", capture_event)
+    cases = [
+        ("empty", FixedEnv([]), "ValueError: live_snapshot returned no environment payloads"),
+        ("none", FixedEnv([None]), "TypeError: live_snapshot payload must be an object"),
+        (
+            "missing-metadata",
+            FixedEnv([{"frame": {"body_positions": [], "body_angles": [], "info": {}}}]),
+            "ValueError: live_snapshot omitted metadata",
+        ),
+        ("raising", FixedEnv(error=RuntimeError("snapshot failed")), "RuntimeError: snapshot failed"),
+    ]
+
+    for name, env, expected_error in cases:
+        run_dir = tmp_path / name
+        run_dir.mkdir()
+        callback = LiveTrainingCallback(
+            run_dir=run_dir,
+            total_timesteps=64,
+            stream_stdout=True,
+        )
+        callback.model = FakeModel(env)  # type: ignore[assignment]
+        callback.num_timesteps = 1
+        callback.locals = {"actions": [[0.0]]}
+
+        callback._write_frame(force_disk=True)
+
+        assert callback.frame_capture_error == expected_error
+        assert callback.frame_capture_retry_after > 0.0
+        assert callback.last_frame_write > 0.0
+        assert not callback.frame_path.exists()
+    assert emitted == ["log"] * len(cases)
+
+
+def test_live_snapshot_capture_recovers_on_forced_retry(tmp_path: Path) -> None:
+    class FlakyVecEnv:
+        def __init__(self) -> None:
+            self.calls: list[bool] = []
+
+        def env_method(self, _name: str, include_metadata: bool = False) -> list[dict[str, object]]:
+            self.calls.append(include_metadata)
+            if len(self.calls) == 1:
+                return []
+            return [
+                {
+                    "metadata": {"body_names": []},
+                    "frame": {
+                        "body_positions": [],
+                        "body_angles": [],
+                        "info": {},
+                    },
+                }
+            ]
+
+    class FakeModel:
+        def __init__(self) -> None:
+            self.env = FlakyVecEnv()
+
+        def get_env(self) -> FlakyVecEnv:
+            return self.env
+
+    model = FakeModel()
+    callback = LiveTrainingCallback(run_dir=tmp_path, total_timesteps=64)
+    callback.model = model  # type: ignore[assignment]
+    callback.num_timesteps = 1
+    callback.locals = {"actions": [[0.0]]}
+
+    callback._write_frame(force_disk=True)
+    assert callback.frame_capture_error is not None
+
+    callback._write_frame(force_disk=True)
+
+    assert model.env.calls == [True, True]
+    assert callback.frame_capture_error is None
+    assert callback.frame_capture_retry_after == 0.0
+    assert callback.metadata_path.is_file()
+    assert callback.frame_path.is_file()
+
+
 def test_metadata_snapshot_write_failure_caches_and_retries(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
