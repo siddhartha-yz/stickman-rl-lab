@@ -2972,6 +2972,36 @@ Sensitive information scan: no findings
 
 Checkpoint commit: `fced54c4c2a0f9ad24331297ff83d6e8830acecf`.
 
+### Goal: validate reward annealing duration before configuration loading
+
+Acceptance criterion: explicit `anneal_timesteps` values must be genuine positive integers. Booleans, fractions, zero, and negative values must fail before any configuration read or run artifact creation; only `None` may select the automatic half-run duration.
+
+Observed baseline:
+
+- Callback setup used `int(anneal_timesteps or max(...))`.
+- `True` and `1.5` were silently coerced to one step.
+- Zero was treated as absent and replaced with the automatic default, while negative values were passed directly to the callback.
+- Four deterministic regressions proved each malformed value crossed the initial configuration boundary.
+
+Implemented:
+
+- Require `numbers.Integral` values and explicitly reject `bool` when the optional field is present.
+- Normalize accepted values to built-in `int` and require at least one annealing timestep.
+- Place validation before loading training or environment configuration.
+- Replace truthiness-based fallback with an explicit `None` check so only omission selects the automatic duration.
+
+Verification:
+
+```text
+Focused pre-fix anneal timestep regressions: 4 failed after crossing the configuration boundary
+Focused anneal timestep boundary suite after fix: 4 passed
+Full Ruff: passed
+Full Pytest: 201 passed
+Sensitive information scan: no findings
+```
+
+Checkpoint commit: `<pending>`.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
