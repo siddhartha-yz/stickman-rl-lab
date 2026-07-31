@@ -57,6 +57,12 @@ def train_ppo(
     timesteps = int(timestep_value)
     if timesteps < 1:
         raise ValueError("total_timesteps must be at least 1")
+    n_envs_value = train_cfg.get("n_envs", 1)
+    if isinstance(n_envs_value, bool) or not isinstance(n_envs_value, Integral):
+        raise ValueError("n_envs must be an integer")
+    n_envs = int(n_envs_value)
+    if n_envs < 1:
+        raise ValueError("n_envs must be at least 1")
     run_id = run_name or f"stage{stage}-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
     checkpoint_dir = PROJECT_ROOT / "checkpoints" / run_id
     log_dir = PROJECT_ROOT / "logs" / run_id
@@ -94,7 +100,6 @@ def train_ppo(
         encoding="utf-8",
     )
 
-    n_envs = int(train_cfg.get("n_envs", 1))
     env = make_vec_env(_make_monitored_env(stage, actual_seed, env_config_path), n_envs=n_envs, seed=actual_seed)
     try:
         eval_env = make_vec_env(
