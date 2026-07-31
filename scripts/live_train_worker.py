@@ -101,6 +101,8 @@ def finite_float(value: Any, default: float = 0.0) -> float:
 
 
 def nonnegative_int(value: Any, default: int = 0) -> int:
+    if isinstance(value, bool):
+        return default
     try:
         parsed = int(value)
     except (OverflowError, TypeError, ValueError):
@@ -855,10 +857,7 @@ def build_failure_status(
 ) -> dict[str, Any]:
     loaded = read_json_with_retry(run_dir / "status.json", {})
     previous: dict[str, Any] = loaded if isinstance(loaded, dict) else {}
-    try:
-        num_timesteps = int(previous.get("num_timesteps", 0) or 0)
-    except (TypeError, ValueError):
-        num_timesteps = 0
+    num_timesteps = nonnegative_int(previous.get("num_timesteps", 0))
     return {
         **previous,
         "state": "failed",
@@ -886,7 +885,12 @@ def main() -> None:
         run(args)
     except Exception as exc:  # noqa: BLE001 - worker must persist failures for the UI
         failure_payload = build_failure_status(run_dir, exc, traceback.format_exc())
-        atomic_json(run_dir / "status.json", failure_payload)
+        try:
+            atomic_json(run_dir / "status.json", failure_payload)
+        except OSError as persist_exc:
+            failure_payload["status_persist_error"] = (
+                f"{type(persist_exc).__name__}: {persist_exc}"
+            )
         emit_stdout_event("status", failure_payload, enabled=args.stream_stdout)
         raise
 

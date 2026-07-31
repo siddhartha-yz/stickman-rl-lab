@@ -2307,6 +2307,68 @@ Full Pytest: 152 passed
 
 Checkpoint commit: `554399a11702d4e80570b2619b57efe6a19ece44`.
 
+
+### Goal: normalize invalid failure timestep progress
+
+Acceptance criterion: persisted `num_timesteps` values used while finalizing a failed worker must not invent progress or raise a second exception. Genuine non-negative integer-like values should remain available, while booleans, negative values, and non-finite values must fall back to zero.
+
+Observed baseline:
+
+- `num_timesteps: true` was converted by `int(True)` into one completed step.
+- Negative persisted values remained negative in the final failed status.
+- A non-finite value raised `OverflowError` inside the top-level failure handler, potentially masking the original trainer exception.
+
+Implemented:
+
+- Reject booleans in the shared worker `nonnegative_int()` boundary.
+- Reuse that boundary when building final failure status instead of performing a separate direct `int()` conversion.
+- Preserve valid durable progress while clamping negative values and safely defaulting conversion failures to zero.
+- Add focused regressions for boolean, negative, and non-finite persisted progress.
+
+Verification:
+
+```text
+TrainingRequest integer-boundary recheck: 7 passed
+Worker failure-status regressions: 5 passed
+Invalid request run directories after rejection: 0
+Sensitive information scan: no findings
+Full Ruff: passed
+Full Pytest: 155 passed
+```
+
+Checkpoint commit: `22eddefd9920fe1a909806250f040c5c3b71345b`.
+
+
+### Goal: preserve the original worker failure when terminal status persistence fails
+
+Acceptance criterion: a persistent `status.json` write failure during top-level worker exception handling must not replace the original trainer exception or suppress the live failed-status event. The event should expose the persistence diagnostic while the original exception continues to determine process failure.
+
+Observed baseline:
+
+- An injected trainer `RuntimeError` entered the top-level failure handler correctly.
+- A subsequent persistent `PermissionError` from `atomic_json(status.json)` escaped instead.
+- The original trainer exception was masked and no failed-status stdout event was emitted.
+
+Implemented:
+
+- Make terminal failed-status persistence best-effort inside the top-level exception handler.
+- Attach `status_persist_error` to the in-memory failure payload when the write raises `OSError`.
+- Emit the failed-status event after the persistence attempt regardless of disk success.
+- Preserve the original exception with the existing bare re-raise.
+- Add an end-to-end `main()` regression using a locked status write and captured stdout event.
+
+Verification:
+
+```text
+Reproduction before fix: PermissionError masked RuntimeError
+Focused failure-finalization regression: 1 passed
+Sensitive information scan: no findings
+Full Ruff: passed
+Full Pytest: 156 passed
+```
+
+Checkpoint commit: `59618e9e1b5c905d2a4f2210035fe61d6b8948df`.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
