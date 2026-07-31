@@ -724,6 +724,39 @@ def test_training_request_normalizes_integral_values_to_builtin_ints() -> None:
     assert type(validated.seed) is int
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("train_config", True),
+        ("train_config", Path("configs/train_smoke.yaml")),
+        ("env_config", 1),
+        ("env_config", []),
+    ],
+)
+def test_training_request_rejects_non_string_config_before_creating_run(
+    tmp_path: Path,
+    field: str,
+    value: object,
+) -> None:
+    values: dict[str, object] = {
+        "stage": 1,
+        "timesteps": 64,
+        "seed": 0,
+        "train_config": "configs/train_smoke.yaml",
+        "env_config": None,
+    }
+    values[field] = value
+    controller = DesktopTrainingController(runs_root=tmp_path)
+
+    with pytest.raises(ValueError, match="Config path must be a string"):
+        controller.start(TrainingRequest(**values))  # type: ignore[arg-type]
+
+    assert list(tmp_path.iterdir()) == []
+    assert controller.run_id is None
+    assert controller.run_dir is None
+    assert controller.process is None
+
+
 def test_training_request_rejects_non_training_config() -> None:
     request = TrainingRequest(train_config="configs/stage1.yaml")
     try:
