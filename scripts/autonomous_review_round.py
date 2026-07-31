@@ -60,12 +60,20 @@ def run_command(command: list[str], log_handle, label: str) -> int:
 
 def load_summary(run_name: str) -> dict[str, Any] | None:
     path = PROJECT_ROOT / "checkpoints" / run_name / "summary.json"
-    if not path.exists():
-        return None
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
+    for attempt in range(20):
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return None
+        except PermissionError:
+            if attempt == 19:
+                return None
+            time.sleep(0.005)
+            continue
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            return None
+        return loaded if isinstance(loaded, dict) else None
+    return None
 
 
 def finite_metric(value: Any, default: float) -> float:

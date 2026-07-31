@@ -2617,6 +2617,36 @@ Sensitive information scan: no findings
 Checkpoint commit: `17b72b8465da431873e2fc3b5da4be0216c92f9d`.
 
 
+### Goal: harden autonomous review summary JSON reads
+
+Acceptance criterion: `summary.json` reads must recover from short Windows sharing locks, reject valid JSON with the wrong top-level shape, and safely downgrade unreadable non-UTF-8 data without terminating the unattended review round.
+
+Observed baseline:
+
+- `load_summary()` performed one direct read and returned `None` after the first transient `PermissionError`, permanently discarding an otherwise valid branch result.
+- A list-valued JSON document was returned despite the function's object contract, allowing later `.get()` calls to fail.
+- Non-UTF-8 summary bytes escaped as `UnicodeDecodeError` and could terminate orchestration after completed training work.
+
+Implemented:
+
+- Retry transient `PermissionError` reads with the same bounded 20-attempt, 5 ms cadence used by other cross-process JSON paths.
+- Return `None` immediately for an absent file or other durable read/parse failure.
+- Accept only dictionary summaries and reject every other valid JSON top-level value.
+- Add focused regressions for a two-lock recovery, non-object JSON, and non-UTF-8 bytes.
+
+Verification:
+
+```text
+Interrupted worktree baseline: Ruff passed, Pytest 3 failed / 164 passed
+Focused summary-reader regressions: 3 passed
+Transient-lock regression repeated independently: 5/5 passed
+Full Ruff: passed
+Full Pytest: 167 passed
+Sensitive information scan: no findings
+```
+
+Checkpoint commit: `<pending>`.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
