@@ -2462,6 +2462,36 @@ Sensitive information scan: no findings
 Checkpoint commit: `4d7ad2db6b08f30cd5a3841d52d117a8e368dd08`.
 
 
+### Goal: stop unattended review before training when preflight validation fails
+
+Acceptance criterion: the long-running autonomous review orchestrator must not launch any training experiment after Ruff, Pytest, or the environment smoke check returns a non-zero exit code. It should stop at the first failed preflight command and propagate that exit code.
+
+Observed baseline:
+
+- The orchestrator invoked Ruff, Pytest, and the Stage-3 environment check but discarded every return code.
+- A deterministic regression made the Pytest preflight return exit code 7.
+- The script still launched all configured training branches, ran final checks, printed a successful completion message, and returned zero.
+
+Implemented:
+
+- Capture each preflight command exit code.
+- Return immediately on the first non-zero result before constructing or launching any training experiment.
+- Preserve successful preflight behavior and the existing command logging path.
+- Add an isolated main-orchestrator regression with mocked commands and a temporary project root.
+
+Verification:
+
+```text
+Reproduction before fix: pytest exit 7 ignored; orchestrator returned 0
+Focused autonomous-review regression: 1 passed
+Full Ruff: passed
+Full Pytest: 160 passed
+Sensitive information scan: no findings
+```
+
+Checkpoint commit: `PENDING`.
+
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`

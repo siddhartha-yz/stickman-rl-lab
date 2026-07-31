@@ -146,7 +146,9 @@ def main() -> int:
             ("stage3-check", [python, "scripts/check_env.py", "--stage", "3", "--steps", "1000"]),
         ]
         for label, command in preflight:
-            run_command(command, log_handle, label)
+            exit_code = run_command(command, log_handle, label)
+            if exit_code != 0:
+                return exit_code
 
         base_checkpoint = "checkpoints/stage2-random-targets/best/best_model.zip"
         experiments = [
