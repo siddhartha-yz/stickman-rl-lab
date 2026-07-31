@@ -10,6 +10,7 @@ import pytest
 from stickman_rl.desktop.app import (
     DesktopLabApp,
     PhysicsCanvas,
+    boolean_value,
     finite_float,
     finite_point,
     format_number,
@@ -388,6 +389,53 @@ def test_frame_payload_downgrades_oversized_action_values() -> None:
     assert normalized["training"]["action"] == [0.0]
 
 
+def test_desktop_success_flags_use_explicit_boolean_values() -> None:
+    assert boolean_value(False) is False
+    assert boolean_value("false") is False
+    assert boolean_value("0") is False
+    assert boolean_value(True) is True
+    assert boolean_value("yes") is True
+    assert boolean_value(1) is True
+    assert boolean_value("unknown") is None
+    assert boolean_value({"bad": 1}) is None
+
+    canvas = PhysicsCanvas.__new__(PhysicsCanvas)
+    canvas.metadata = normalize_metadata_payload(
+        {
+            "room": {"width": 12, "height": 7},
+            "target": {"position": [9.5, 0.55], "size": [0.8, 0.9]},
+            "obstacles": [],
+            "waypoints": [],
+            "body_names": [],
+            "body_geometry": {},
+        }
+    )
+    canvas.frame = normalize_frame_payload(
+        {
+            "frame": {
+                "body_positions": [],
+                "body_angles": [],
+                "info": {"is_success": "false"},
+            }
+        }
+    )
+    canvas.trail = deque(maxlen=140)
+    canvas.winfo_width = lambda: 800
+    canvas.winfo_height = lambda: 500
+    texts: list[str | None] = []
+    canvas.delete = lambda *_args, **_kwargs: None
+    canvas.create_text = lambda *_args, **kwargs: texts.append(kwargs.get("text"))
+    for name in ("create_line", "create_rectangle", "create_oval", "create_polygon"):
+        setattr(canvas, name, lambda *_args, **_kwargs: None)
+
+    PhysicsCanvas.redraw(canvas)
+    assert "GOAL REACHED" not in texts
+
+    canvas.frame["frame"]["info"] = {"is_success": "true"}
+    PhysicsCanvas.redraw(canvas)
+    assert "GOAL REACHED" in texts
+
+
 def test_refresh_ui_tolerates_non_string_state() -> None:
     class Widget:
         def __init__(self) -> None:
@@ -407,8 +455,11 @@ def test_refresh_ui_tolerates_non_string_state() -> None:
             return None
 
     class Chart:
-        def set_values(self, _values: object) -> None:
-            return None
+        def __init__(self) -> None:
+            self.values: list[float] = []
+
+        def set_values(self, values: object) -> None:
+            self.values = list(values)  # type: ignore[arg-type]
 
     class Controller:
         run_id = "repro"
@@ -416,7 +467,16 @@ def test_refresh_ui_tolerates_non_string_state() -> None:
 
     app = DesktopLabApp.__new__(DesktopLabApp)
     app.status = {"state": {"bad": 1}, "total_timesteps": 64, "num_timesteps": 1}
-    app.metrics = {"episodes": [], "updates": []}
+    app.metrics = {
+        "episodes": [
+            {"success": "false"},
+            {"success": "true"},
+            {"success": 0},
+            {"success": 1},
+            {"success": "unknown"},
+        ],
+        "updates": [],
+    }
     app.metadata = None
     app.frame = None
     app.frame_times = deque(maxlen=120)
@@ -445,6 +505,7 @@ def test_refresh_ui_tolerates_non_string_state() -> None:
 
     assert "等待训练" in str(app.status_label.options["text"])
     assert app.start_button.options["state"] == "normal"
+    assert app.success_chart.values == pytest.approx([0.0, 0.5, 1 / 3, 0.5])
 
 
 def test_run_summaries_sorts_latest_first(tmp_path: Path) -> None:
