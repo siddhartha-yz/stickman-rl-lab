@@ -93,6 +93,8 @@ def read_json_with_retry(path: Path, default: Any = None) -> Any:
 
 
 def finite_float(value: Any, default: float = 0.0) -> float:
+    if isinstance(value, bool | np.bool_):
+        return default
     try:
         parsed = float(value)
     except (OverflowError, TypeError, ValueError):
