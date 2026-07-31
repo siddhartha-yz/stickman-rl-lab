@@ -2765,6 +2765,35 @@ Sensitive information scan: no findings
 
 Checkpoint commit: `0e347c350b743a22af26225fdd7aadf33b1b36b3`.
 
+### Goal: require genuine integer evaluation episode counts
+
+Acceptance criterion: trained-policy and random-policy evaluation must reject boolean and fractional episode counts before loading a model or creating an environment, while valid integral values normalize to built-in integers.
+
+Observed baseline:
+
+- Python booleans passed the positive-count comparison and `True` silently became one evaluation episode.
+- A fractional count such as `1.5` passed the initial boundary, caused model/environment allocation, and failed only later when used by `range()`.
+- Four deterministic regressions proved both evaluation APIs performed resource work before rejecting these malformed programmatic inputs.
+
+Implemented:
+
+- Require `numbers.Integral` values and explicitly reject `bool`.
+- Normalize accepted integral values to built-in `int` before the positive-count check.
+- Preserve the existing zero and negative validation and all normal CLI integer behavior.
+- Add boolean and fractional regressions for both policy and random evaluation paths.
+
+Verification:
+
+```text
+Focused pre-fix noninteger regressions: 4 failed before model/environment validation
+Focused evaluation boundary suite after fix: 8 passed
+Full Ruff: passed
+Full Pytest: 178 passed
+Sensitive information scan: no findings
+```
+
+Checkpoint commit: `<pending>`.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
