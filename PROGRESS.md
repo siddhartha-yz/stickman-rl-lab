@@ -2586,6 +2586,67 @@ Sensitive information scan: no findings
 Checkpoint commit: `1ba5dbe82f9c1434760b4d28fb42f3ec11ff0e11`.
 
 
+### Goal: fall back from missing autonomous continuation checkpoints
+
+Acceptance criterion: a ranked summary without a usable `recommended_checkpoint` must not become the literal resume path `"None"` or another invalid value. Continuation training should fall back to the known Stage-2 base checkpoint unless the recommended path is a non-empty existing file.
+
+Observed baseline:
+
+- Continuation source construction wrapped `summary.get("recommended_checkpoint")` in `str(...)`.
+- A deterministic ranked summary contained valid evaluation metrics but no checkpoint field.
+- The generated continuation command used `--resume None`, guaranteeing the next training branch would fail.
+
+Implemented:
+
+- Add one continuation checkpoint resolver.
+- Accept only non-empty string paths that resolve to an existing file, supporting both relative and absolute paths.
+- Fall back to the existing Stage-2 base checkpoint for missing, blank, non-string, or unavailable recommendations.
+- Add an end-to-end orchestrator regression proving missing metadata generates the base resume path.
+
+Verification:
+
+```text
+Reproduction before fix: continuation command contained --resume None
+Focused autonomous-review regressions: 5 passed
+Fallback continuation command: verified base checkpoint path
+Full Ruff: passed
+Full Pytest: 164 passed
+Sensitive information scan: no findings
+```
+
+Checkpoint commit: `17b72b8465da431873e2fc3b5da4be0216c92f9d`.
+
+
+### Goal: harden autonomous review summary JSON reads
+
+Acceptance criterion: `summary.json` reads must recover from short Windows sharing locks, reject valid JSON with the wrong top-level shape, and safely downgrade unreadable non-UTF-8 data without terminating the unattended review round.
+
+Observed baseline:
+
+- `load_summary()` performed one direct read and returned `None` after the first transient `PermissionError`, permanently discarding an otherwise valid branch result.
+- A list-valued JSON document was returned despite the function's object contract, allowing later `.get()` calls to fail.
+- Non-UTF-8 summary bytes escaped as `UnicodeDecodeError` and could terminate orchestration after completed training work.
+
+Implemented:
+
+- Retry transient `PermissionError` reads with the same bounded 20-attempt, 5 ms cadence used by other cross-process JSON paths.
+- Return `None` immediately for an absent file or other durable read/parse failure.
+- Accept only dictionary summaries and reject every other valid JSON top-level value.
+- Add focused regressions for a two-lock recovery, non-object JSON, and non-UTF-8 bytes.
+
+Verification:
+
+```text
+Interrupted worktree baseline: Ruff passed, Pytest 3 failed / 164 passed
+Focused summary-reader regressions: 3 passed
+Transient-lock regression repeated independently: 5/5 passed
+Full Ruff: passed
+Full Pytest: 167 passed
+Sensitive information scan: no findings
+```
+
+Checkpoint commit: `8866d37c59660bfb717166b27c7f9ef56b546859`.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`

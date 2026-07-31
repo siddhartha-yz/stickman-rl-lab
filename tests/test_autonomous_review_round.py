@@ -8,6 +8,55 @@ import pytest
 import scripts.autonomous_review_round as review_module
 
 
+def test_load_summary_retries_transient_permission_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    summary_path = tmp_path / "checkpoints" / "run-a" / "summary.json"
+    summary_path.parent.mkdir(parents=True)
+    payload = {"recommended_checkpoint": "checkpoints/run-a/model.zip"}
+    summary_path.write_text(review_module.json.dumps(payload), encoding="utf-8")
+    original_read_text = Path.read_text
+    attempts = 0
+
+    def flaky_read_text(path: Path, *args: object, **kwargs: object) -> str:
+        nonlocal attempts
+        if path == summary_path and attempts < 2:
+            attempts += 1
+            raise PermissionError("simulated summary lock")
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(review_module, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(Path, "read_text", flaky_read_text)
+
+    assert review_module.load_summary("run-a") == payload
+    assert attempts == 2
+
+
+def test_load_summary_rejects_non_object_json(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    summary_path = tmp_path / "checkpoints" / "run-a" / "summary.json"
+    summary_path.parent.mkdir(parents=True)
+    summary_path.write_text("[]", encoding="utf-8")
+    monkeypatch.setattr(review_module, "PROJECT_ROOT", tmp_path)
+
+    assert review_module.load_summary("run-a") is None
+
+
+def test_load_summary_rejects_non_utf8_bytes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    summary_path = tmp_path / "checkpoints" / "run-a" / "summary.json"
+    summary_path.parent.mkdir(parents=True)
+    summary_path.write_bytes(b"\xff\xfe\xfa")
+    monkeypatch.setattr(review_module, "PROJECT_ROOT", tmp_path)
+
+    assert review_module.load_summary("run-a") is None
+
+
 def test_result_key_uses_valid_candidate_when_other_metrics_are_malformed() -> None:
     summary = {
         "final_evaluation": {
@@ -57,6 +106,44 @@ def test_append_progress_uses_valid_candidate_when_other_metrics_are_malformed(
     text = progress_path.read_text(encoding="utf-8")
     assert "| branch-a | 0 | 0.500 | 12.000 | 1.250 |" in text
     assert "`checkpoints/branch-a/model.zip`" in text
+
+
+def test_main_falls_back_when_ranked_summary_has_no_checkpoint(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    continuation_commands: list[list[str]] = []
+    monotonic_values = iter([0.0, 0.0, 61.0, 61.0])
+    summary = {
+        "best_evaluation": {
+            "success_rate": 0.75,
+            "mean_reward": 20.0,
+            "mean_final_distance": 0.5,
+        }
+    }
+
+    def fake_run_command(command: list[str], log_handle: object, label: str) -> int:
+        del log_handle
+        if "continuation-" in label:
+            continuation_commands.append(command)
+        return 0
+
+    monkeypatch.setattr(review_module, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        review_module,
+        "parse_args",
+        lambda: argparse.Namespace(min_minutes=1.0, tag="missing-checkpoint"),
+    )
+    monkeypatch.setattr(review_module, "run_command", fake_run_command)
+    monkeypatch.setattr(review_module, "load_summary", lambda _name: summary)
+    monkeypatch.setattr(review_module, "append_progress", lambda *_args: None)
+    monkeypatch.setattr(review_module.time, "monotonic", lambda: next(monotonic_values))
+
+    assert review_module.main() == 0
+    assert len(continuation_commands) == 1
+    command = continuation_commands[0]
+    resume_index = command.index("--resume")
+    assert command[resume_index + 1] == "checkpoints/stage2-random-targets/best/best_model.zip"
 
 
 def test_main_stops_before_training_when_preflight_fails(
