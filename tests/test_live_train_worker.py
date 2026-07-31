@@ -928,6 +928,7 @@ def test_on_step_clears_stale_last_info(
     ("rewards", "dones", "expected_reward"),
     [
         ([{"bad": 1}], [False], 0.0),
+        ([True], [False], 0.0),
         ([1.0], {"bad": 1}, 1.0),
     ],
 )

@@ -2399,6 +2399,36 @@ Full Pytest: 157 passed
 
 Checkpoint commit: `f790131e5351e8a16f600fd32bd844952d6358dd`.
 
+
+### Goal: reject boolean values at worker floating-point metric boundaries
+
+Acceptance criterion: boolean values in numeric reward, distance, or logger fields must not be interpreted through Python's `bool`-as-`int` behavior. Invalid booleans should use the caller's numeric fallback, while explicit boolean fields continue through the dedicated strict parser.
+
+Observed baseline:
+
+- A rollout reward vector containing `True` passed `float(True)` conversion.
+- The callback added `1.0` to the current episode reward even though the reward payload was malformed.
+- This could silently corrupt rolling reward and persisted episode metrics without stopping training.
+
+Implemented:
+
+- Reject both native `bool` and NumPy `bool_` values in the shared `finite_float()` boundary.
+- Return the caller-provided numeric fallback before attempting float conversion.
+- Preserve the dedicated `finite_bool()` path for success, done, paused, and stop values.
+- Extend malformed reward-vector regressions with a boolean reward case.
+
+Verification:
+
+```text
+Reproduction before fix: True reward accumulated as 1.0
+Focused numeric/boolean regressions: 7 passed
+Sensitive information scan: no findings
+Full Ruff: passed
+Full Pytest: 158 passed
+```
+
+Checkpoint commit: pending.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
