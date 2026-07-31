@@ -26,13 +26,13 @@ METRIC_HISTORY_LIMIT = 500
 def emit_stdout_event(event_type: str, payload: Any, *, enabled: bool) -> bool:
     if not enabled:
         return False
-    event = {"type": event_type, "payload": json_safe(payload)}
     try:
+        event = {"type": event_type, "payload": json_safe(payload)}
         print(
             f"{EVENT_PREFIX}{json.dumps(event, ensure_ascii=False, separators=(',', ':'))}",
             flush=True,
         )
-    except (OSError, ValueError):
+    except Exception:  # noqa: BLE001 - telemetry must never terminate PPO training
         return False
     return True
 
