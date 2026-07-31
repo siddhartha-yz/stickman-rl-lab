@@ -5,6 +5,12 @@ param(
     [string]$Goal,
 
     [Parameter(Mandatory = $true)]
+    [ValidateSet("feat", "fix", "test", "docs", "refactor", "perf", "build", "ci", "chore")]
+    [string]$Type,
+
+    [string]$Scope,
+
+    [Parameter(Mandatory = $true)]
     [ValidateNotNullOrEmpty()]
     [string[]]$Paths,
 
@@ -60,10 +66,28 @@ if (-not $repositoryRoot) {
 $repositoryRoot = [IO.Path]::GetFullPath($repositoryRoot)
 Set-Location -LiteralPath $repositoryRoot
 
+$progressPath = Join-Path $repositoryRoot "PROGRESS.md"
+if (
+    (Test-Path -LiteralPath $progressPath -PathType Leaf) -and
+    (Select-String -LiteralPath $progressPath -SimpleMatch 'Checkpoint commit: `<pending>`' -Quiet)
+) {
+    throw "PROGRESS.md still contains a pending self-hash marker. Remove it; the checkpoint commit itself is the provenance record."
+}
+
 $branch = (Invoke-Git -Arguments @("branch", "--show-current") | Select-Object -First 1).Trim()
 if (-not $branch) {
     throw "Detached HEAD is not supported. Check out a named branch first."
 }
+
+$cleanGoal = ($Goal -replace '[\r\n]+', ' ').Trim()
+if (-not $cleanGoal) {
+    throw "Commit goal cannot be blank."
+}
+$cleanScope = if ($Scope) { ($Scope -replace '[\r\n]+', ' ').Trim() } else { "" }
+if ($cleanScope -and $cleanScope -notmatch '^[a-z0-9][a-z0-9._-]*$') {
+    throw "Commit scope must contain only lowercase letters, digits, dots, underscores, or hyphens."
+}
+$message = if ($cleanScope) { "${Type}($cleanScope): $cleanGoal" } else { "${Type}: $cleanGoal" }
 
 # `powershell.exe -File` can bind comma-separated CLI values as one array item.
 $Paths = @(
@@ -144,8 +168,6 @@ if ($LASTEXITCODE -ne 1) {
 }
 
 $stagedPaths = Invoke-Git -Arguments @("diff", "--cached", "--name-only", "--diff-filter=ACDMRTUXB")
-$cleanGoal = ($Goal -replace '[\r\n]+', ' ').Trim()
-$message = "feat(goal): $cleanGoal"
 
 Invoke-Git -Arguments @("commit", "-m", $message) | Out-Null
 $commitHash = (Invoke-Git -Arguments @("rev-parse", "HEAD") | Select-Object -First 1).Trim()
@@ -161,3 +183,4 @@ Write-Host "Message: $message"
 Write-Host "Files:"
 $stagedPaths | ForEach-Object { Write-Host "  $_" }
 Write-Host "Pushed: $(-not $NoPush)"
+Write-Host "The printed commit hash is the provenance record; do not create a follow-up hash-only commit."
