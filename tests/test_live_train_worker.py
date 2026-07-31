@@ -403,6 +403,43 @@ def test_on_step_tolerates_malformed_reward_and_done_vectors(
 
 
 @pytest.mark.parametrize(
+    ("success_value", "expected_success"),
+    [
+        ("false", False),
+        ("true", True),
+        ("unknown", False),
+        ({"bad": 1}, False),
+    ],
+)
+def test_on_step_parses_success_flags_strictly(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    success_value: object,
+    expected_success: bool,
+) -> None:
+    callback = LiveTrainingCallback(run_dir=tmp_path, total_timesteps=64)
+    callback.num_timesteps = 1
+    callback.locals = {
+        "rewards": [1.0],
+        "infos": [
+            {
+                "episode": {"r": 1.0, "l": 1},
+                "is_success": success_value,
+                "final_distance": 2.0,
+            }
+        ],
+        "dones": [True],
+    }
+    monkeypatch.setattr(callback, "_write_metrics", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(callback, "_write_frame", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(callback, "_write_status", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(callback, "_handle_control", lambda: True)
+
+    assert callback._on_step()
+    assert callback.episodes[0]["success"] is expected_success
+
+
+@pytest.mark.parametrize(
     "info_value",
     [
         {"episode": None, "is_success": False, "final_distance": None},

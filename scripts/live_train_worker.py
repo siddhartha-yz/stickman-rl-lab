@@ -506,7 +506,7 @@ class LiveTrainingCallback(BaseCallback):
             episode_length = nonnegative_int(
                 episode_info.get("l"), self.episode_step
             )
-            success = bool(info.get("is_success", False))
+            success = finite_bool(info.get("is_success"), False)
             final_distance = finite_float(
                 info.get("final_distance", info.get("distance")), 0.0
             )
