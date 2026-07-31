@@ -2061,6 +2061,66 @@ Full Pytest: 111 passed
 
 Checkpoint commit: `9b7a05e6c52396152631464e4ccfb81a05bafdfd`.
 
+
+### Goal: isolate stdout telemetry payload sanitization failures
+
+Acceptance criterion: stdout telemetry is auxiliary. Exceptions raised while sanitizing, encoding, or printing a structured event must disable streaming and return control to PPO instead of terminating training.
+
+Observed baseline:
+
+- A dictionary key whose `__str__` raised escaped from `json_safe()` as `RuntimeError`.
+- A 2,500-level nested container escaped as `RecursionError`.
+- Both failures happened before the existing stdout write exception handler.
+
+Implemented:
+
+- Move payload sanitization and JSON encoding inside the telemetry isolation boundary.
+- Catch ordinary exceptions across sanitization, encoding, and output, returning `False`.
+- Preserve `BaseException` behavior so process termination and interrupts are not swallowed.
+- Existing callback callers continue switching to disk-only after the first `False` result.
+
+Verification:
+
+```text
+Worker tests: 31 passed
+Bad dictionary key after fix: False
+2,500-level container after fix: False
+Full Ruff: passed
+Full Pytest: 112 passed
+```
+
+Checkpoint commit: `f34f57dc851c59601eaebf9d6283f5974b20382c`.
+
+
+### Goal: make status serialization resilient to unprintable keys and excessive nesting
+
+Acceptance criterion: malformed third-party info must not terminate status persistence. Dictionary keys that cannot be stringified need stable placeholders, and containers deeper than the supported serialization depth need deterministic truncation while ordinary, shared, and cyclic structures retain their existing behavior.
+
+Observed baseline:
+
+- A custom info key whose `__str__` raised caused `_status_payload()` to fail with `RuntimeError`.
+- A 2,500-level info container caused `_status_payload()` to fail with `RecursionError`.
+- Both failures occurred before status JSON could be written or streamed.
+
+Implemented:
+
+- Add a 128-level container depth limit with the marker `<max-depth>`.
+- Convert unprintable mapping keys to stable type-and-index placeholders.
+- Preserve recursive-reference detection and repeated non-cyclic object expansion.
+- Keep all resulting status payloads compatible with strict JSON encoding.
+
+Verification:
+
+```text
+Worker tests: 32 passed
+Unprintable-key status payload: strict JSON passed
+2,500-level status payload: strict JSON passed
+Full Ruff: passed
+Full Pytest: 113 passed
+```
+
+Checkpoint commit: `795931c350587961700de2a3a1809ce901b6ef3b`.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
