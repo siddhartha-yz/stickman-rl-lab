@@ -2794,6 +2794,245 @@ Sensitive information scan: no findings
 
 Checkpoint commit: `d0896b5decd8d75a32dfd25987d2aa91c43d1125`.
 
+### Goal: reject nonpositive main training timesteps before run creation
+
+Acceptance criterion: an explicit zero or negative `total_timesteps` value must fail before checkpoint/log directories or environments are created. Only `None` should select the configured default.
+
+Observed baseline:
+
+- `train_ppo()` used `total_timesteps or train_cfg["total_timesteps"]`.
+- An explicit zero was treated as absent and silently became a configured 1,000,000-step run.
+- A negative value remained negative but still created run directories and reached environment allocation.
+- Deterministic regressions proved both invalid requests crossed the side-effect boundary.
+
+Implemented:
+
+- Distinguish an omitted `None` value from explicit numeric inputs.
+- Normalize the selected value once and reject values below one before deriving the run ID or creating directories.
+- Preserve configured defaults for genuinely omitted values.
+- Add zero and negative regressions that assert no checkpoint directory, log directory, or environment creation occurs.
+
+Verification:
+
+```text
+Focused pre-fix regressions: 2 failed after crossing the environment boundary
+Focused nonpositive timestep regressions after fix: 2 passed
+Full Ruff: passed
+Full Pytest: 180 passed
+Sensitive information scan: no findings
+```
+
+Checkpoint commit: `6474f5121e9721e91a7e85439fcbcf7038955a3a`.
+
+### Goal: require genuine integer main training timesteps
+
+Acceptance criterion: explicit or configured `total_timesteps` values must be genuine integers. Booleans and fractions must fail before checkpoint/log directories or environments are created, while valid integral values normalize to built-in integers.
+
+Observed baseline:
+
+- `train_ppo()` converted the selected timestep value through direct `int(...)`.
+- `True` and `1.5` were both silently coerced to one training step.
+- Deterministic regressions proved both malformed values crossed the run-directory and environment boundary instead of raising a validation error.
+
+Implemented:
+
+- Require `numbers.Integral` values and explicitly reject `bool`.
+- Normalize accepted integral values to built-in `int` before applying the positive-value constraint.
+- Preserve the existing `None` default selection plus zero and negative rejection.
+- Add boolean and fractional regressions that assert no directories or environments are created.
+
+Verification:
+
+```text
+Focused pre-fix noninteger regressions: 2 failed after crossing the environment boundary
+Focused timestep boundary suite after fix: 4 passed
+Full Ruff: passed
+Full Pytest: 182 passed
+Sensitive information scan: no findings
+```
+
+Checkpoint commit: `e4aade477506d95f656d581240febf8eefd09c2b`.
+
+### Goal: validate main training environment count before run creation
+
+Acceptance criterion: configured `n_envs` must be a genuine positive integer. Booleans, fractions, zero, and negative values must fail before checkpoint/log directories or environments are created.
+
+Observed baseline:
+
+- `train_ppo()` wrote run configuration and metadata before converting `n_envs` through direct `int(...)`.
+- `True` and `1.5` were silently coerced to one environment.
+- Zero and negative values also crossed the run-directory boundary and reached `make_vec_env()`.
+- Four deterministic regressions proved all malformed values caused side effects before rejection.
+
+Implemented:
+
+- Require `numbers.Integral` values and explicitly reject `bool`.
+- Normalize accepted values to built-in `int` and require at least one environment.
+- Move validation before run ID derivation, directory creation, metadata writes, and environment allocation.
+- Add boolean, fractional, zero, and negative regressions that assert no directories or environments are created.
+
+Verification:
+
+```text
+Focused pre-fix n_envs regressions: 4 failed after crossing the environment boundary
+Focused n_envs boundary suite after fix: 4 passed
+Full Ruff: passed
+Full Pytest: 186 passed
+Sensitive information scan: no findings
+```
+
+Checkpoint commit: `44629f06faa3a85ea36b36da5d8594f330bca477`.
+
+### Goal: validate main training seed before run creation
+
+Acceptance criterion: explicit or configured training seeds must be genuine non-negative integers. Booleans, fractions, and negative values must fail before checkpoint/log directories or environments are created.
+
+Observed baseline:
+
+- `train_ppo()` converted the selected seed through direct `int(...)`.
+- `True` and `1.5` were silently coerced to one.
+- A negative seed crossed the run-directory boundary and reached environment allocation before downstream rejection.
+- Three deterministic regressions proved every malformed value caused side effects before validation.
+
+Implemented:
+
+- Require `numbers.Integral` values and explicitly reject `bool`.
+- Normalize accepted seed values to built-in `int` and require a non-negative result.
+- Apply the same boundary to explicit seeds and seeds loaded from environment configuration.
+- Move validation before run ID derivation, directory creation, metadata writes, and environment allocation.
+
+Verification:
+
+```text
+Focused pre-fix seed regressions: 3 failed after crossing the environment boundary
+Focused seed boundary suite after fix: 3 passed
+Full Ruff: passed
+Full Pytest: 189 passed
+Sensitive information scan: no findings
+```
+
+Checkpoint commit: `8085db1d048e216c1d4f00f91a3ed2af5c9120b8`.
+
+### Goal: validate main training stage before configuration loading
+
+Acceptance criterion: programmatic training stages must be genuine integers in the supported range 0–5. Booleans, fractions, and out-of-range values must fail before any configuration read or run artifact creation.
+
+Observed baseline:
+
+- The CLI constrained stage values, but `train_ppo()` accepted arbitrary programmatic inputs.
+- Invalid values reached `load_train_config()` and `load_env_config()` before any type or range validation.
+- Boolean and fractional stages could be interpreted inconsistently through Python formatting and integer conversion, while unsupported stages silently fell back toward base configuration behavior.
+- Four deterministic regressions proved each malformed stage crossed the configuration boundary.
+
+Implemented:
+
+- Require `numbers.Integral` values and explicitly reject `bool`.
+- Normalize accepted values to built-in `int` and require the supported range 0–5.
+- Place validation at the start of `train_ppo()` before training or environment configuration loading.
+- Add boolean, fractional, below-range, and above-range regressions that assert no configuration or run side effects occur.
+
+Verification:
+
+```text
+Focused pre-fix stage regressions: 4 failed after crossing the configuration boundary
+Focused stage boundary suite after fix: 4 passed
+Full Ruff: passed
+Full Pytest: 193 passed
+Sensitive information scan: no findings
+```
+
+Checkpoint commit: `42ad7d71fcf529c78e4baec886f52b003e96a6b6`.
+
+### Goal: validate reward annealing source stage before configuration loading
+
+Acceptance criterion: optional `anneal_from_stage` values must be genuine integers in the supported range 0–5. Booleans, fractions, and out-of-range values must fail before any training configuration read or run artifact creation.
+
+Observed baseline:
+
+- `anneal_from_stage` was not interpreted until callback construction, after configurations, directories, environments, and the PPO model had already been created.
+- Boolean and fractional values could select inconsistent stage paths, while out-of-range values silently fell back toward base environment configuration.
+- Four deterministic regressions proved malformed annealing stages crossed the initial configuration boundary.
+
+Implemented:
+
+- Require `numbers.Integral` values and explicitly reject `bool` when the optional field is present.
+- Normalize accepted values to built-in `int` and require the supported range 0–5.
+- Place validation beside the primary stage boundary before loading training or environment configuration.
+- Add boolean, fractional, below-range, and above-range regressions that assert no configuration or run side effects occur.
+
+Verification:
+
+```text
+Focused pre-fix anneal stage regressions: 4 failed after crossing the configuration boundary
+Focused anneal stage boundary suite after fix: 4 passed
+Full Ruff: passed
+Full Pytest: 197 passed
+Sensitive information scan: no findings
+```
+
+Checkpoint commit: `fced54c4c2a0f9ad24331297ff83d6e8830acecf`.
+
+### Goal: validate reward annealing duration before configuration loading
+
+Acceptance criterion: explicit `anneal_timesteps` values must be genuine positive integers. Booleans, fractions, zero, and negative values must fail before any configuration read or run artifact creation; only `None` may select the automatic half-run duration.
+
+Observed baseline:
+
+- Callback setup used `int(anneal_timesteps or max(...))`.
+- `True` and `1.5` were silently coerced to one step.
+- Zero was treated as absent and replaced with the automatic default, while negative values were passed directly to the callback.
+- Four deterministic regressions proved each malformed value crossed the initial configuration boundary.
+
+Implemented:
+
+- Require `numbers.Integral` values and explicitly reject `bool` when the optional field is present.
+- Normalize accepted values to built-in `int` and require at least one annealing timestep.
+- Place validation before loading training or environment configuration.
+- Replace truthiness-based fallback with an explicit `None` check so only omission selects the automatic duration.
+
+Verification:
+
+```text
+Focused pre-fix anneal timestep regressions: 4 failed after crossing the configuration boundary
+Focused anneal timestep boundary suite after fix: 4 passed
+Full Ruff: passed
+Full Pytest: 201 passed
+Sensitive information scan: no findings
+```
+
+Checkpoint commit: `8efc71d33539df5e69728230d428ab223d3b8875`.
+
+### Goal: validate main training evaluation episode count before run creation
+
+Acceptance criterion: configured `eval_episodes` must be a genuine positive integer and must fail before checkpoint/log directories or environments are created. Training must not complete only to fail during final evaluation because the requested episode count is invalid.
+
+Observed baseline:
+
+- `eval_episodes` was converted through direct `int(...)` only during callback construction and final evaluation.
+- `True` and `1.5` were silently coerced to one, while zero and negative values crossed the run and environment boundary.
+- A zero value could allow training work to proceed and then fail at the stricter evaluation API boundary.
+- Four deterministic regressions proved every malformed value caused side effects before validation.
+
+Implemented:
+
+- Require `numbers.Integral` values and explicitly reject `bool`.
+- Normalize accepted values to built-in `int` and require at least one evaluation episode.
+- Validate before run directory creation and reuse the normalized value in EvalCallback and final checkpoint evaluation.
+- Add boolean, fractional, zero, and negative regressions; update three existing cleanup-test fixtures with the now-required valid field so their original injection paths remain intact.
+
+Verification:
+
+```text
+Focused pre-fix eval_episodes regressions: 4 failed after crossing the environment boundary
+First full-suite pass: 3 existing cleanup tests exposed incomplete fake configs
+Validation plus repaired cleanup fixtures: 7 passed
+Full Ruff: passed
+Full Pytest: 205 passed
+Sensitive information scan: no findings
+```
+
+Checkpoint commit: `<pending>`.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`

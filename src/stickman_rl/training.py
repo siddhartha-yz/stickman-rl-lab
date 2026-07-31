@@ -7,6 +7,7 @@ import platform
 import sys
 from datetime import datetime
 from importlib.metadata import PackageNotFoundError, version
+from numbers import Integral
 from pathlib import Path
 from typing import Any
 
@@ -47,10 +48,49 @@ def train_ppo(
     env_config_path: str | Path | None = None,
 ) -> tuple[Path, dict[str, Any]]:
     """Train or resume PPO and return the final checkpoint plus evaluation summary."""
+    if isinstance(stage, bool) or not isinstance(stage, Integral):
+        raise ValueError("stage must be an integer")
+    stage = int(stage)
+    if not 0 <= stage <= 5:
+        raise ValueError("stage must be between 0 and 5")
+    if anneal_from_stage is not None:
+        if isinstance(anneal_from_stage, bool) or not isinstance(anneal_from_stage, Integral):
+            raise ValueError("anneal_from_stage must be an integer")
+        anneal_from_stage = int(anneal_from_stage)
+        if not 0 <= anneal_from_stage <= 5:
+            raise ValueError("anneal_from_stage must be between 0 and 5")
+    if anneal_timesteps is not None:
+        if isinstance(anneal_timesteps, bool) or not isinstance(anneal_timesteps, Integral):
+            raise ValueError("anneal_timesteps must be an integer")
+        anneal_timesteps = int(anneal_timesteps)
+        if anneal_timesteps < 1:
+            raise ValueError("anneal_timesteps must be at least 1")
     train_cfg = load_train_config(train_config_path)
     env_cfg = load_env_config(stage=stage, config_path=env_config_path)
-    actual_seed = int(env_cfg.get("seed", 0) if seed is None else seed)
-    timesteps = int(total_timesteps or train_cfg["total_timesteps"])
+    seed_value = env_cfg.get("seed", 0) if seed is None else seed
+    if isinstance(seed_value, bool) or not isinstance(seed_value, Integral):
+        raise ValueError("seed must be an integer")
+    actual_seed = int(seed_value)
+    if actual_seed < 0:
+        raise ValueError("seed must be non-negative")
+    timestep_value = train_cfg["total_timesteps"] if total_timesteps is None else total_timesteps
+    if isinstance(timestep_value, bool) or not isinstance(timestep_value, Integral):
+        raise ValueError("total_timesteps must be an integer")
+    timesteps = int(timestep_value)
+    if timesteps < 1:
+        raise ValueError("total_timesteps must be at least 1")
+    n_envs_value = train_cfg.get("n_envs", 1)
+    if isinstance(n_envs_value, bool) or not isinstance(n_envs_value, Integral):
+        raise ValueError("n_envs must be an integer")
+    n_envs = int(n_envs_value)
+    if n_envs < 1:
+        raise ValueError("n_envs must be at least 1")
+    eval_episodes_value = train_cfg.get("eval_episodes")
+    if isinstance(eval_episodes_value, bool) or not isinstance(eval_episodes_value, Integral):
+        raise ValueError("eval_episodes must be an integer")
+    eval_episodes = int(eval_episodes_value)
+    if eval_episodes < 1:
+        raise ValueError("eval_episodes must be at least 1")
     run_id = run_name or f"stage{stage}-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
     checkpoint_dir = PROJECT_ROOT / "checkpoints" / run_id
     log_dir = PROJECT_ROOT / "logs" / run_id
@@ -88,7 +128,6 @@ def train_ppo(
         encoding="utf-8",
     )
 
-    n_envs = int(train_cfg.get("n_envs", 1))
     env = make_vec_env(_make_monitored_env(stage, actual_seed, env_config_path), n_envs=n_envs, seed=actual_seed)
     try:
         eval_env = make_vec_env(
@@ -157,7 +196,9 @@ def train_ppo(
                 RewardAnnealingCallback(
                     start_weights=start_rewards,
                     end_weights=env_cfg["rewards"],
-                    anneal_timesteps=int(anneal_timesteps or max(1, timesteps // 2)),
+                    anneal_timesteps=(
+                        anneal_timesteps if anneal_timesteps is not None else max(1, timesteps // 2)
+                    ),
                 )
             )
         early_stop_callback = None
@@ -180,7 +221,7 @@ def train_ppo(
                     best_model_save_path=str(checkpoint_dir / "best"),
                     log_path=str(log_dir / "eval"),
                     eval_freq=max(1, int(train_cfg["eval_freq"]) // n_envs),
-                    n_eval_episodes=int(train_cfg["eval_episodes"]),
+                    n_eval_episodes=eval_episodes,
                     deterministic=True,
                     render=False,
                     callback_after_eval=early_stop_callback,
@@ -199,7 +240,7 @@ def train_ppo(
     finally:
         env.close()
         eval_env.close()
-    evaluation_episodes = min(5, int(train_cfg["eval_episodes"]))
+    evaluation_episodes = min(5, eval_episodes)
     final_zip = final_path.with_suffix(".zip")
     final_result = evaluate_policy_path(
         final_zip,
