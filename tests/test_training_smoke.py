@@ -72,6 +72,39 @@ def test_train_ppo_rejects_invalid_anneal_stage_before_config_loading(
     assert not (tmp_path / "logs").exists()
 
 
+@pytest.mark.parametrize(
+    ("anneal_timesteps", "message"),
+    [
+        (True, "anneal_timesteps must be an integer"),
+        (1.5, "anneal_timesteps must be an integer"),
+        (0, "anneal_timesteps must be at least 1"),
+        (-1, "anneal_timesteps must be at least 1"),
+    ],
+)
+def test_train_ppo_rejects_invalid_anneal_timesteps_before_config_loading(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    anneal_timesteps: object,
+    message: str,
+) -> None:
+    def unexpected_load_train_config(*args: object, **kwargs: object) -> None:
+        del args, kwargs
+        raise AssertionError("config must not load for invalid anneal timesteps")
+
+    monkeypatch.setattr(training_module, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(training_module, "load_train_config", unexpected_load_train_config)
+
+    with pytest.raises(ValueError, match=message):
+        training_module.train_ppo(
+            anneal_from_stage=1,
+            anneal_timesteps=anneal_timesteps,  # type: ignore[arg-type]
+            run_name="invalid-anneal-timesteps",
+        )
+
+    assert not (tmp_path / "checkpoints").exists()
+    assert not (tmp_path / "logs").exists()
+
+
 @pytest.mark.parametrize("seed", [True, 1.5])
 def test_train_ppo_rejects_noninteger_seed_before_run_creation(
     tmp_path,

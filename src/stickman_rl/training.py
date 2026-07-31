@@ -59,6 +59,12 @@ def train_ppo(
         anneal_from_stage = int(anneal_from_stage)
         if not 0 <= anneal_from_stage <= 5:
             raise ValueError("anneal_from_stage must be between 0 and 5")
+    if anneal_timesteps is not None:
+        if isinstance(anneal_timesteps, bool) or not isinstance(anneal_timesteps, Integral):
+            raise ValueError("anneal_timesteps must be an integer")
+        anneal_timesteps = int(anneal_timesteps)
+        if anneal_timesteps < 1:
+            raise ValueError("anneal_timesteps must be at least 1")
     train_cfg = load_train_config(train_config_path)
     env_cfg = load_env_config(stage=stage, config_path=env_config_path)
     seed_value = env_cfg.get("seed", 0) if seed is None else seed
@@ -184,7 +190,9 @@ def train_ppo(
                 RewardAnnealingCallback(
                     start_weights=start_rewards,
                     end_weights=env_cfg["rewards"],
-                    anneal_timesteps=int(anneal_timesteps or max(1, timesteps // 2)),
+                    anneal_timesteps=(
+                        anneal_timesteps if anneal_timesteps is not None else max(1, timesteps // 2)
+                    ),
                 )
             )
         early_stop_callback = None
