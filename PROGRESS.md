@@ -2001,6 +2001,37 @@ Full Pytest: 100 passed
 
 Checkpoint commit: `a45ebf25bdc7a8cf4969de33d03986ed430e8b1f`.
 
+
+### Goal: reject non-integer TrainingRequest fields before creating a run
+
+Acceptance criterion: `stage`, `timesteps`, and `seed` must be genuine integer values. Floats and booleans must fail before the controller creates a run directory, while valid `numbers.Integral` inputs must normalize to built-in `int` values before persistence.
+
+Observed baseline:
+
+- `stage=1.5`, `timesteps=64.5`, and `seed=0.5` passed range validation.
+- `stage=True` also passed because Python booleans participate in integer comparisons.
+- Invalid values could therefore create a run directory and fail only when the worker parsed command-line arguments.
+
+Implemented:
+
+- Require each numeric request field to implement `numbers.Integral` and explicitly reject `bool`.
+- Normalize accepted integral values to built-in `int` before range checks and request persistence.
+- Preserve the existing stage, timestep, seed, and config constraints.
+
+Verification:
+
+```text
+Controller tests: 26 passed
+Rejected before run creation: stage=1.5, stage=True, timesteps=64.5,
+  timesteps=False, seed=0.5, seed=True
+Run directories after every rejected request: 0
+numpy.int64 normalization: types int/int/int, values 2/128/7
+Full Ruff: passed
+Full Pytest: 107 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`

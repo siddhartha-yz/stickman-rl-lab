@@ -5,6 +5,7 @@ import sys
 import time
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 import stickman_rl.desktop.controller as controller_module
@@ -670,6 +671,57 @@ def test_desktop_controller_records_spawn_failure(tmp_path: Path) -> None:
     assert "Unable to start desktop trainer" in (controller.run_dir / "worker.log").read_text(  # type: ignore[operator]
         encoding="utf-8"
     )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("stage", 1.5),
+        ("stage", True),
+        ("timesteps", 64.5),
+        ("timesteps", False),
+        ("seed", 0.5),
+        ("seed", True),
+    ],
+)
+def test_training_request_rejects_non_integer_values_before_creating_run(
+    tmp_path: Path,
+    field: str,
+    value: object,
+) -> None:
+    values: dict[str, object] = {
+        "stage": 1,
+        "timesteps": 64,
+        "seed": 0,
+        "train_config": "configs/train_smoke.yaml",
+    }
+    values[field] = value
+    request = TrainingRequest(**values)  # type: ignore[arg-type]
+    controller = DesktopTrainingController(runs_root=tmp_path)
+
+    with pytest.raises(ValueError, match=rf"{field} must be an integer"):
+        controller.start(request)
+
+    assert list(tmp_path.iterdir()) == []
+    assert controller.run_id is None
+    assert controller.run_dir is None
+    assert controller.process is None
+
+
+def test_training_request_normalizes_integral_values_to_builtin_ints() -> None:
+    validated = TrainingRequest(
+        stage=np.int64(2),
+        timesteps=np.int64(128),
+        seed=np.int64(7),
+        train_config="configs/train_smoke.yaml",
+    ).validated()
+
+    assert validated.stage == 2
+    assert validated.timesteps == 128
+    assert validated.seed == 7
+    assert type(validated.stage) is int
+    assert type(validated.timesteps) is int
+    assert type(validated.seed) is int
 
 
 def test_training_request_rejects_non_training_config() -> None:
