@@ -2824,6 +2824,35 @@ Sensitive information scan: no findings
 
 Checkpoint commit: `6474f5121e9721e91a7e85439fcbcf7038955a3a`.
 
+### Goal: require genuine integer main training timesteps
+
+Acceptance criterion: explicit or configured `total_timesteps` values must be genuine integers. Booleans and fractions must fail before checkpoint/log directories or environments are created, while valid integral values normalize to built-in integers.
+
+Observed baseline:
+
+- `train_ppo()` converted the selected timestep value through direct `int(...)`.
+- `True` and `1.5` were both silently coerced to one training step.
+- Deterministic regressions proved both malformed values crossed the run-directory and environment boundary instead of raising a validation error.
+
+Implemented:
+
+- Require `numbers.Integral` values and explicitly reject `bool`.
+- Normalize accepted integral values to built-in `int` before applying the positive-value constraint.
+- Preserve the existing `None` default selection plus zero and negative rejection.
+- Add boolean and fractional regressions that assert no directories or environments are created.
+
+Verification:
+
+```text
+Focused pre-fix noninteger regressions: 2 failed after crossing the environment boundary
+Focused timestep boundary suite after fix: 4 passed
+Full Ruff: passed
+Full Pytest: 182 passed
+Sensitive information scan: no findings
+```
+
+Checkpoint commit: `<pending>`.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
