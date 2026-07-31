@@ -94,6 +94,22 @@ def test_emit_stdout_event_returns_false_for_broken_pipe(
     assert not emit_stdout_event("status", {"state": "running"}, enabled=True)
 
 
+def test_emit_stdout_event_returns_false_for_payload_sanitization_failure() -> None:
+    class BadKey:
+        def __str__(self) -> str:
+            raise RuntimeError("simulated key stringification failure")
+
+    nested: list[object] = []
+    current = nested
+    for _ in range(2_500):
+        child: list[object] = []
+        current.append(child)
+        current = child
+
+    assert not emit_stdout_event("status", {BadKey(): 1}, enabled=True)
+    assert not emit_stdout_event("frame", nested, enabled=True)
+
+
 def test_logger_metrics_ignore_non_scalar_and_invalid_values(tmp_path: Path) -> None:
     class FakeLogger:
         name_to_value = {

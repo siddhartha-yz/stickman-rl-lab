@@ -2061,6 +2061,36 @@ Full Pytest: 111 passed
 
 Checkpoint commit: `9b7a05e6c52396152631464e4ccfb81a05bafdfd`.
 
+
+### Goal: isolate stdout telemetry payload sanitization failures
+
+Acceptance criterion: stdout telemetry is auxiliary. Exceptions raised while sanitizing, encoding, or printing a structured event must disable streaming and return control to PPO instead of terminating training.
+
+Observed baseline:
+
+- A dictionary key whose `__str__` raised escaped from `json_safe()` as `RuntimeError`.
+- A 2,500-level nested container escaped as `RecursionError`.
+- Both failures happened before the existing stdout write exception handler.
+
+Implemented:
+
+- Move payload sanitization and JSON encoding inside the telemetry isolation boundary.
+- Catch ordinary exceptions across sanitization, encoding, and output, returning `False`.
+- Preserve `BaseException` behavior so process termination and interrupts are not swallowed.
+- Existing callback callers continue switching to disk-only after the first `False` result.
+
+Verification:
+
+```text
+Worker tests: 31 passed
+Bad dictionary key after fix: False
+2,500-level container after fix: False
+Full Ruff: passed
+Full Pytest: 112 passed
+```
+
+Checkpoint commit: pending `goal_checkpoint.ps1` result.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
