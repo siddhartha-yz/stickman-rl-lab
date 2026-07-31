@@ -2794,6 +2794,36 @@ Sensitive information scan: no findings
 
 Checkpoint commit: `d0896b5decd8d75a32dfd25987d2aa91c43d1125`.
 
+### Goal: reject nonpositive main training timesteps before run creation
+
+Acceptance criterion: an explicit zero or negative `total_timesteps` value must fail before checkpoint/log directories or environments are created. Only `None` should select the configured default.
+
+Observed baseline:
+
+- `train_ppo()` used `total_timesteps or train_cfg["total_timesteps"]`.
+- An explicit zero was treated as absent and silently became a configured 1,000,000-step run.
+- A negative value remained negative but still created run directories and reached environment allocation.
+- Deterministic regressions proved both invalid requests crossed the side-effect boundary.
+
+Implemented:
+
+- Distinguish an omitted `None` value from explicit numeric inputs.
+- Normalize the selected value once and reject values below one before deriving the run ID or creating directories.
+- Preserve configured defaults for genuinely omitted values.
+- Add zero and negative regressions that assert no checkpoint directory, log directory, or environment creation occurs.
+
+Verification:
+
+```text
+Focused pre-fix regressions: 2 failed after crossing the environment boundary
+Focused nonpositive timestep regressions after fix: 2 passed
+Full Ruff: passed
+Full Pytest: 180 passed
+Sensitive information scan: no findings
+```
+
+Checkpoint commit: `<pending>`.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`

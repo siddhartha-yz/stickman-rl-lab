@@ -50,7 +50,10 @@ def train_ppo(
     train_cfg = load_train_config(train_config_path)
     env_cfg = load_env_config(stage=stage, config_path=env_config_path)
     actual_seed = int(env_cfg.get("seed", 0) if seed is None else seed)
-    timesteps = int(total_timesteps or train_cfg["total_timesteps"])
+    timestep_value = train_cfg["total_timesteps"] if total_timesteps is None else total_timesteps
+    timesteps = int(timestep_value)
+    if timesteps < 1:
+        raise ValueError("total_timesteps must be at least 1")
     run_id = run_name or f"stage{stage}-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
     checkpoint_dir = PROJECT_ROOT / "checkpoints" / run_id
     log_dir = PROJECT_ROOT / "logs" / run_id
