@@ -232,6 +232,45 @@ def test_train_ppo_rejects_nonpositive_timesteps_before_run_creation(
     assert not (tmp_path / "logs").exists()
 
 
+@pytest.mark.parametrize(
+    ("eval_episodes", "message"),
+    [
+        (True, "eval_episodes must be an integer"),
+        (1.5, "eval_episodes must be an integer"),
+        (0, "eval_episodes must be at least 1"),
+        (-1, "eval_episodes must be at least 1"),
+    ],
+)
+def test_train_ppo_rejects_invalid_eval_episodes_before_run_creation(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    eval_episodes: object,
+    message: str,
+) -> None:
+    def unexpected_make_vec_env(*args: object, **kwargs: object) -> None:
+        del args, kwargs
+        raise AssertionError("environment must not be created for invalid eval_episodes")
+
+    monkeypatch.setattr(training_module, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        training_module,
+        "load_train_config",
+        lambda _path: {"total_timesteps": 64, "eval_episodes": eval_episodes},
+    )
+    monkeypatch.setattr(
+        training_module,
+        "load_env_config",
+        lambda **_kwargs: {"seed": 0},
+    )
+    monkeypatch.setattr(training_module, "make_vec_env", unexpected_make_vec_env)
+
+    with pytest.raises(ValueError, match=message):
+        training_module.train_ppo(run_name="invalid-eval-episodes")
+
+    assert not (tmp_path / "checkpoints").exists()
+    assert not (tmp_path / "logs").exists()
+
+
 @pytest.mark.parametrize("n_envs", [True, 1.5])
 def test_train_ppo_rejects_noninteger_n_envs_before_run_creation(
     tmp_path,
@@ -317,7 +356,7 @@ def test_train_ppo_closes_training_env_when_eval_env_creation_fails(
     monkeypatch.setattr(
         training_module,
         "load_train_config",
-        lambda _path: {"total_timesteps": 64},
+        lambda _path: {"total_timesteps": 64, "eval_episodes": 2},
     )
     monkeypatch.setattr(
         training_module,
@@ -367,6 +406,7 @@ def test_train_ppo_closes_both_envs_when_ppo_construction_fails(
             "ent_coef": 0.0,
             "vf_coef": 0.5,
             "max_grad_norm": 0.5,
+            "eval_episodes": 2,
         },
     )
     monkeypatch.setattr(
@@ -423,6 +463,7 @@ def test_train_ppo_closes_both_envs_when_callback_construction_fails(
             "ent_coef": 0.0,
             "vf_coef": 0.5,
             "max_grad_norm": 0.5,
+            "eval_episodes": 2,
         },
     )
     monkeypatch.setattr(

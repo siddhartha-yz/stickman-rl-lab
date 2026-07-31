@@ -3002,6 +3002,37 @@ Sensitive information scan: no findings
 
 Checkpoint commit: `8efc71d33539df5e69728230d428ab223d3b8875`.
 
+### Goal: validate main training evaluation episode count before run creation
+
+Acceptance criterion: configured `eval_episodes` must be a genuine positive integer and must fail before checkpoint/log directories or environments are created. Training must not complete only to fail during final evaluation because the requested episode count is invalid.
+
+Observed baseline:
+
+- `eval_episodes` was converted through direct `int(...)` only during callback construction and final evaluation.
+- `True` and `1.5` were silently coerced to one, while zero and negative values crossed the run and environment boundary.
+- A zero value could allow training work to proceed and then fail at the stricter evaluation API boundary.
+- Four deterministic regressions proved every malformed value caused side effects before validation.
+
+Implemented:
+
+- Require `numbers.Integral` values and explicitly reject `bool`.
+- Normalize accepted values to built-in `int` and require at least one evaluation episode.
+- Validate before run directory creation and reuse the normalized value in EvalCallback and final checkpoint evaluation.
+- Add boolean, fractional, zero, and negative regressions; update three existing cleanup-test fixtures with the now-required valid field so their original injection paths remain intact.
+
+Verification:
+
+```text
+Focused pre-fix eval_episodes regressions: 4 failed after crossing the environment boundary
+First full-suite pass: 3 existing cleanup tests exposed incomplete fake configs
+Validation plus repaired cleanup fixtures: 7 passed
+Full Ruff: passed
+Full Pytest: 205 passed
+Sensitive information scan: no findings
+```
+
+Checkpoint commit: `<pending>`.
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
