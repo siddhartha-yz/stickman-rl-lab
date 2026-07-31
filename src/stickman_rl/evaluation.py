@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from numbers import Integral
 from pathlib import Path
 from typing import Any
 
@@ -14,9 +15,12 @@ from stickman_rl.env import StickmanReachEnv
 
 
 def _positive_episode_count(episodes: int) -> int:
-    if episodes < 1:
+    if isinstance(episodes, bool) or not isinstance(episodes, Integral):
+        raise ValueError("episodes must be an integer")
+    normalized = int(episodes)
+    if normalized < 1:
         raise ValueError("episodes must be at least 1")
-    return episodes
+    return normalized
 
 
 @dataclass(slots=True)
