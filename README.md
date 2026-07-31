@@ -1,5 +1,7 @@
 # Stickman RL Lab
 
+[![CI](https://github.com/siddhartha-yz/stickman-rl-lab/actions/workflows/ci.yml/badge.svg)](https://github.com/siddhartha-yz/stickman-rl-lab/actions/workflows/ci.yml)
+
 A modular two-dimensional reinforcement-learning laboratory built with **Gymnasium**, **PyMunk**, **Pygame**, **Stable-Baselines3 PPO**, and **PyTorch**. An agent controls eight angle-limited rotary joints on a multi-rigid-body stickman and learns to move toward a red target inside a closed room.
 
 ## Verified capabilities
