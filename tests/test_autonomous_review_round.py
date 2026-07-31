@@ -32,3 +32,35 @@ def test_main_stops_before_training_when_preflight_fails(
     assert review_module.main() == 7
     assert labels == ["ruff", "pytest"]
     assert not any("medium-deterministic" in label for label in labels)
+
+
+def test_main_returns_failed_final_validation_after_preserving_report(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    labels: list[str] = []
+    progress_rounds: list[str] = []
+
+    def fake_run_command(command: list[str], log_handle: object, label: str) -> int:
+        del command, log_handle
+        labels.append(label)
+        return 9 if label == "final-pytest" else 0
+
+    monkeypatch.setattr(review_module, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        review_module,
+        "parse_args",
+        lambda: argparse.Namespace(min_minutes=0.0, tag="final-failure"),
+    )
+    monkeypatch.setattr(review_module, "run_command", fake_run_command)
+    monkeypatch.setattr(review_module, "load_summary", lambda _name: None)
+    monkeypatch.setattr(
+        review_module,
+        "append_progress",
+        lambda round_id, *_args: progress_rounds.append(round_id),
+    )
+
+    assert review_module.main() == 9
+    assert labels[-3:] == ["final-ruff", "final-pytest", "final-stage3-check"]
+    assert len(progress_rounds) == 1
+    assert len(list((tmp_path / "logs").glob("*/round_summary.json"))) == 1

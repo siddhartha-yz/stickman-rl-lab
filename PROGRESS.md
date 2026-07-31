@@ -2492,6 +2492,38 @@ Sensitive information scan: no findings
 Checkpoint commit: `02e96c4e7425ad200989b1335eab3211ee9809ea`.
 
 
+### Goal: propagate autonomous review final validation failures after preserving reports
+
+Acceptance criterion: after all training branches finish, a failed final Ruff, Pytest, or environment check must make the orchestrator return a non-zero status. Completed experiment records, the progress entry, and `round_summary.json` should still be preserved before exit.
+
+Observed baseline:
+
+- The final validation commands ran, but every exit code was discarded.
+- A deterministic regression made `final-pytest` return exit code 9.
+- The script preserved its report but still returned zero, so callers could classify a validation-failed round as successful.
+
+Implemented:
+
+- Track the first non-zero final validation exit code while continuing to run all final checks.
+- Preserve the existing progress append and machine-readable report write.
+- Return the captured validation failure code after durable reporting completes.
+- Add an orchestrator regression proving exit code 9 propagates while both report paths remain present.
+
+Verification:
+
+```text
+Reproduction before fix: final-pytest exit 9 ignored; main returned 0
+Focused autonomous-review regressions: 2 passed
+Progress entry preserved on final validation failure: passed
+round_summary.json preserved on final validation failure: passed
+Full Ruff: passed
+Full Pytest: 161 passed
+Sensitive information scan: no findings
+```
+
+Checkpoint commit: `PENDING`.
+
+
 ## Generated artifacts
 
 - Random/pre-training GIF: `videos/random-before.gif`
